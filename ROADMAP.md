@@ -74,6 +74,22 @@ The `reference` case is the `roles-section-formio` defect: one finding, ranked f
 un-migratable in isolation. The `validators` case was a flaw in the first fix — burying a
 shared validator module as "cannot be migrated alone" is worse than not classifying at all.
 
+**M6b/M6c** — nested array/group recipe examples, and a **compile harness**. `verify/` is a
+separate workspace with a real `@angular/forms@22` installed; `npm run verify:recipes`
+generates a reference to every symbol the recipes import and typechecks fixtures covering
+the highest-frequency recipes. CI runs it on every push.
+
+What the harness proved that documentation alone could not:
+
+- `disabled(path, { when })` really is the v22 signature.
+- The nested `schema()` + `apply()` inside `applyEach()` composition typechecks — the v22
+  docs contain no such example, so this had been reasoned from signatures.
+- `f().reset(value)`, `f.email().value.set(v)`, `f.items[0].name().value()`,
+  `form(model, schema, { submission: { action } })`, `debounce(path, 'blur')` and
+  `FormValueControl` all exist and take the arguments the recipes claim.
+- Deliberately injecting the historical `Control`-instead-of-`FormField` mistake makes the
+  harness fail with `TS2305`, which is what makes a green run mean something.
+
 ### Still deferred
 
 | Item | Target | Note |

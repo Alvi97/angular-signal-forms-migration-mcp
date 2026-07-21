@@ -24,6 +24,18 @@ official Angular CLI MCP server (`npx @angular/cli mcp`), cross-checked against
 angular.dev. Anything that could not be confirmed is labelled
 `UNVERIFIED — confirm on <url>` in its `caveats`.
 
+**The recipes also compile.** CI installs a real `@angular/forms@22` and typechecks
+fixtures that exercise every API the recipes use — so a recipe naming a function that
+does not exist, or calling it with the wrong argument shape, fails the build:
+
+```bash
+npm run verify:install   # installs a real Angular 22
+npm run verify:recipes   # compiles the recipe API surface against it
+```
+
+That check is what proves `disabled(path, { when })` is the v22 signature, and that the
+nested `schema()` + `apply()` composition works — the docs demonstrate neither.
+
 Provenance is **structured and required** — no recipe can exist without it:
 
 ```jsonc

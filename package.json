@@ -26,7 +26,9 @@
     "test:watch": "vitest",
     "check": "npm run typecheck && npm run lint && npm run test",
     "start": "node dist/server.js",
-    "prepublishOnly": "npm run check && npm run build"
+    "prepublishOnly": "npm run check && npm run build",
+    "verify:install": "npm --prefix verify install",
+    "verify:recipes": "npm run build && node verify/generate.mjs && npx tsc -p verify/tsconfig.json"
   },
   "keywords": [
     "mcp",

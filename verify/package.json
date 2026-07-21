@@ -1,0 +1,17 @@
+{
+  "name": "signal-forms-recipe-verification",
+  "private": true,
+  "description": "Compile fixture: proves recipe snippets typecheck against real @angular/forms v22.",
+  "type": "module",
+  "scripts": {
+    "verify": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@angular/common": "^22.0.0",
+    "@angular/core": "^22.0.0",
+    "@angular/forms": "^22.0.0",
+    "rxjs": "^7.8.0",
+    "typescript": "^5.9.3",
+    "zone.js": "^0.15.0"
+  }
+}

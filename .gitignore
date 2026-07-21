@@ -23,3 +23,7 @@ yarn-error.log*
 
 # npm pack output
 *.tgz
+
+# recipe verification workspace
+verify/node_modules
+verify/generated

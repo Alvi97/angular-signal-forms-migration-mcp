@@ -3,7 +3,12 @@ import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['dist/**', 'node_modules/**', 'coverage/**'] },
+  {
+    // `verify/` is a separate workspace with its own tsconfig and its own compile check
+    // (npm run verify:recipes). Linting it from here would need it in this project's
+    // program, which would drag real Angular into the published package's typecheck.
+    ignores: ['dist/**', 'node_modules/**', 'coverage/**', 'verify/**'],
+  },
   js.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
   {
