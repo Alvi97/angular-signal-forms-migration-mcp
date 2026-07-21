@@ -30,11 +30,15 @@ operators in their `.pipe()` chain:
 The hardest operator present decides the tier. Recipes: `ControlValueAccessor`,
 `valueChanges`, `valueChangesPipeline`, `valueChangesAsyncPipeline`.
 
+**M4** — reporting. `get_migration_report` composes findings, complexity and recipe
+references into a markdown string: totals, suggested order, construct table, every
+judgment call with its line and reason, and a version-sensitivity warning that fires only
+for constructs actually present. Returns the string; the server never writes files.
+
 ### Still deferred
 
 | Item | Target | Note |
 | --- | --- | --- |
-| `get_migration_report` tool | M4 | |
 | Classifying arbitrary RxJS outside form streams | post-M4 | Explicitly out of scope. Operator analysis is rooted at `.valueChanges` / `.statusChanges`, so it cannot stray into unrelated observables. A general RxJS-to-signals tool is a different product. |
 | Reading the project's installed Angular version | post-M4 | Would let version-sensitive recipes pick the right variant instead of handing the agent both. |
 

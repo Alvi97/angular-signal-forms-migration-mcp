@@ -233,3 +233,17 @@ export const analyzeMigrationComplexityInputSchema = z.object({
     .describe('Absolute path to a .ts file or a directory to scan recursively.'),
 });
 export type AnalyzeMigrationComplexityInput = z.infer<typeof analyzeMigrationComplexityInputSchema>;
+
+export const getMigrationReportInputSchema = z.object({
+  path: z
+    .string()
+    .min(1)
+    .describe('Absolute path to a .ts file or a directory to scan recursively.'),
+});
+export type GetMigrationReportInput = z.infer<typeof getMigrationReportInputSchema>;
+
+/** The report is a markdown string; MCP structuredContent must be an object, so it wraps. */
+export const getMigrationReportOutputSchema = z.object({
+  markdown: z.string(),
+});
+export type GetMigrationReportOutput = z.infer<typeof getMigrationReportOutputSchema>;

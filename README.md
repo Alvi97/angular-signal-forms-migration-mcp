@@ -164,6 +164,22 @@ Returns `totalFindings`, `byConstruct`, the `mechanicalCount` / `judgmentCount` 
 that need design decisions, and the smallest of those comes first. Migrating in that order
 means you establish the model shape on easy files before you hit the hard ones.
 
+### `get_migration_report`
+
+Composes everything into one markdown document.
+
+```jsonc
+{ "path": "/abs/path/to/repo" }
+```
+
+Returns a report with the headline totals, a suggested file order, a construct table
+naming the recipe for each, the individual judgment calls with line numbers and reasons,
+and a **"Read the caveats"** section listing any version-sensitive recipe that actually
+applies to your codebase (it stays silent when none does).
+
+It returns the markdown as a **string**. It does not write a file — saving it is your
+decision, not the server's.
+
 ## Example
 
 ```
@@ -192,10 +208,14 @@ core functions to the protocol.
 
 ## Status
 
-M1. See [SPEC.md](./SPEC.md) for the full v1 scope and [ROADMAP.md](./ROADMAP.md) for
-what is deferred — notably `FormArray`, async validators,
-`ControlValueAccessor` guidance, `valueChanges` pipelines, and the workspace-wide
-migration report.
+Feature-complete through M4: all four tools ship, with 23 doc-verified recipes covering
+basic constructs, arrays, runtime shape mutation, async validators, custom controls and
+the three RxJS stream tiers.
+
+See [ROADMAP.md](./ROADMAP.md) for what is deliberately **not** covered — chiefly
+template (`.html`) scanning, template-driven forms, and a `ts.Program`-backed deep mode.
+Those are real gaps, and the report says so in its own "Scope" section rather than
+letting the totals imply completeness.
 
 ## License
 

@@ -17,12 +17,15 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { analyzeMigrationComplexity } from './core/complexity.js';
 import { findFormCandidates } from './core/detect.js';
 import { getSignalFormsRecipe } from './core/recipes.js';
+import { buildMigrationReport } from './core/report.js';
 import {
   analyzeMigrationComplexityInputSchema,
   findFormCandidatesInputSchema,
   findFormCandidatesOutputSchema,
   getSignalFormsRecipeInputSchema,
   getSignalFormsRecipeOutputSchema,
+  getMigrationReportInputSchema,
+  getMigrationReportOutputSchema,
   migrationComplexitySchema,
   type FindFormCandidatesOutput,
   type GetSignalFormsRecipeOutput,
@@ -127,6 +130,35 @@ export function createServer(): McpServer {
       const result = findFormCandidates(toAbsolute(path), nodeFileSystem);
       if (!result.ok) return errorResult(result.error);
       return jsonResult(analyzeMigrationComplexity(result.data));
+    },
+  );
+
+  server.registerTool(
+    'get_migration_report',
+    {
+      title: 'Generate a Signal Forms migration report',
+      description:
+        'Scans a .ts file or directory and returns a MARKDOWN REPORT combining findings, ' +
+        'complexity, a suggested file order, the constructs present with their recipe names, ' +
+        'and a warning for any version-sensitive recipe involved. Returns the report as a ' +
+        'string — it does NOT write a file; you decide whether to save it. ' +
+        'Read-only: this tool never modifies your files.',
+      inputSchema: getMigrationReportInputSchema.shape,
+      outputSchema: getMigrationReportOutputSchema.shape,
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    },
+    ({ path }) => {
+      const absolute = toAbsolute(path);
+      const result = findFormCandidates(absolute, nodeFileSystem);
+      if (!result.ok) return errorResult(result.error);
+
+      const markdown = buildMigrationReport(absolute, result.data);
+      return {
+        // The markdown IS the payload here, so it goes in content as-is rather than
+        // being JSON-encoded — the agent should be able to read or save it directly.
+        content: [{ type: 'text', text: markdown }],
+        structuredContent: { markdown },
+      };
     },
   );
 
