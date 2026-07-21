@@ -57,6 +57,11 @@ export const DETECTED_CONSTRUCTS = [
   'Validators.compose',
   'customValidator',
   'AbstractControl.get',
+  // Keyed and indexed lookups found by diffing the reactive control classes against what
+  // the detector actually reports — `items.at(i)` is the standard way to reach one
+  // FormArray entry, and it was invisible.
+  'AbstractControl.at',
+  'AbstractControl.contains',
 
   // M2 — dynamic and async
   'FormArray',
@@ -83,6 +88,8 @@ export const DETECTED_CONSTRUCTS = [
   'AbstractControl.pristine',
   'AbstractControl.pending',
   'AbstractControl.controls',
+  'AbstractControl.length',
+  'AbstractControl.defaultValue',
   'AbstractControl.status',
   'AbstractControl.setValue',
   'AbstractControl.patchValue',

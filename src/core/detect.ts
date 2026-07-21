@@ -69,10 +69,11 @@ function baseName(pathLike: string): string {
  * Built-in validators with a direct one-to-one Signal Forms counterpart.
  * Anything outside this set is treated as judgment: the agent must not guess.
  *
- * `requiredTrue` is here on the strength of the v22 docs only: they state that `required()`
- * "treats false as missing (invalid), matching <input type=checkbox required>". The v21 docs
- * defined empty as `null` or `''` alone, which made `false` pass — on v21 this would be a
- * judgment call needing a hand-written `validate()` rule. The recipe carries that warning.
+ * `requiredTrue` is here because `required()` "treats false as missing (invalid), matching
+ * <input type=checkbox required>". This comment used to add that v21 behaved differently and
+ * that the substitution was therefore version-sensitive. It is not: `isEmpty` is byte-identical
+ * in @angular/forms 21.0.0 and 22.0.7, both testing `value === false`. Only v21's DOCS omitted
+ * the sentence — a documentation gap read as a behaviour.
  * Source: https://angular.dev/guide/forms/signals/validation#required
  */
 const MECHANICAL_VALIDATORS: ReadonlySet<string> = new Set([
@@ -172,6 +173,13 @@ const STATE_READS: ReadonlySet<string> = new Set([
   'pristine',
   'pending',
   'controls',
+  // FormArray.length — `items.length` and `items.controls.length` are how nearly every
+  // template asks "is the list empty?". Found by diffing the reactive control classes
+  // against what this detector reports: 4 of the 57 public members were real migration
+  // sites and invisible here.
+  'length',
+  // FormControl.defaultValue — only meaningful alongside reset(), whose semantics change.
+  'defaultValue',
 ]);
 
 /**
@@ -584,22 +592,45 @@ function collectFromControlGet(
 ): void {
   const callee = node.expression;
   if (!ts.isPropertyAccessExpression(callee)) return;
-  if (declaredName(callee.name) !== 'get') return;
+  const method = declaredName(callee.name);
+  if (method === undefined || !KEYED_LOOKUPS.has(method)) return;
   if (!isFormDerivedReceiver(callee.expression, formNames)) return;
 
   const [key] = node.arguments;
-  const literalKey = key !== undefined && ts.isStringLiteralLike(key);
+  const literalKey = key !== undefined && (ts.isStringLiteralLike(key) || ts.isNumericLiteral(key));
 
   out.push({
-    construct: 'AbstractControl.get',
+    construct: `AbstractControl.${method}`,
     node,
     classification: literalKey ? 'mechanical' : 'judgment',
-    reason: literalKey
-      ? 'A literal .get("key") becomes dot notation on the field tree (form.key).'
-      : 'The key is computed, so there is no single field to rewrite to; the surrounding ' +
-        'code must be redesigned around the typed field tree.',
+    reason: literalKey ? (KEYED_LOOKUP_REASONS[method] ?? COMPUTED_KEY_REASON) : COMPUTED_KEY_REASON,
   });
 }
+
+/**
+ * String- or index-keyed lookups into a form.
+ *
+ * `at` and `contains` were invisible until the reactive control classes were diffed against
+ * what this file reports. `items.at(i)` is the standard way to touch one FormArray entry, so
+ * missing it understated the edit count on exactly the forms that are hardest to migrate.
+ */
+const KEYED_LOOKUPS: ReadonlySet<string> = new Set(['get', 'at', 'contains']);
+
+const KEYED_LOOKUP_REASONS: Readonly<Record<string, string>> = {
+  get: 'A literal .get("key") becomes dot notation on the field tree (form.key).',
+  at:
+    'A literal .at(i) becomes index access on the field tree (f.items[i]), which is typed ' +
+    'rather than an AbstractControl lookup that could return null.',
+  contains:
+    'The field tree is a typed object, so membership is known at compile time — a literal ' +
+    '.contains("key") is either always true or a type error, and the branch around it ' +
+    'usually collapses. If the key was tracking an optional field, model it as an optional ' +
+    'property and use hidden()/applyWhen() instead.',
+};
+
+const COMPUTED_KEY_REASON =
+  'The key is computed, so there is no single field to rewrite to; the surrounding code ' +
+  'must be redesigned around the typed field tree.';
 
 /**
  * `form.invalid`, `form.value`, `form.controls` — state read straight off the form object.
@@ -1100,9 +1131,10 @@ function isFormDerivedReceiver(receiver: ts.Node, formNames: ReadonlySet<string>
     return false;
   }
 
-  // form.controls.email
+  // `form.controls` itself (so `form.controls.length` resolves) as well as one control out
+  // of it (`form.controls.email`).
   if (ts.isPropertyAccessExpression(node)) {
-    return isControlsAccess(node.expression, formNames);
+    return isControlsAccess(node, formNames) || isControlsAccess(node.expression, formNames);
   }
   // form.controls['email']
   if (ts.isElementAccessExpression(node)) {

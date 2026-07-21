@@ -14,8 +14,13 @@
  */
 import { signal } from '@angular/core';
 import { FormControl, FormGroup } from '@angular/forms';
-import { required, email, type FieldTree } from '@angular/forms/signals';
-import { compatForm, SignalFormControl } from '@angular/forms/signals/compat';
+import { required, email, provideSignalFormsConfig, type FieldTree } from '@angular/forms/signals';
+import {
+  compatForm,
+  extractValue,
+  NG_STATUS_CLASSES,
+  SignalFormControl,
+} from '@angular/forms/signals/compat';
 
 /* ---- Bottom-up: a signal-driven leaf inside a reactive FormGroup ---------- */
 
@@ -58,4 +63,40 @@ export const wrapped = compatForm(addressModel, (path) => {
 /** The field yields the control's VALUE, not the FormControl itself. */
 export function readThroughCompat(): string | null {
   return wrapped.city().value();
+}
+
+/* -------------------------------------------------------------------------- */
+/* CSS status classes — the silent, app-wide regression                        */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * "Reactive/Template Forms automatically adds class attributes (such as `.ng-valid` or
+ * `.ng-dirty`) to facilitate styling control states. Signal Forms does not do that."
+ *
+ * Nothing catches this: it type-checks, it compiles, the tests pass, and every stylesheet
+ * rule targeting .ng-invalid / .ng-touched simply stops matching. The whole app loses its
+ * error styling the moment a form is migrated.
+ *
+ * The documented opt-in is one provider, compiled here.
+ */
+export const RESTORE_STATUS_CLASSES = provideSignalFormsConfig({ classes: NG_STATUS_CLASSES });
+
+/** Or a hand-rolled map, when only some classes are wanted. */
+export const CUSTOM_STATUS_CLASSES = provideSignalFormsConfig({
+  classes: {
+    'ng-valid': ({ state }) => state().valid(),
+    'ng-invalid': ({ state }) => state().invalid(),
+    'ng-touched': ({ state }) => state().touched(),
+    'ng-dirty': ({ state }) => state().dirty(),
+  },
+});
+
+/** extractValue() unwraps a field tree — the replacement for getRawValue(). */
+export function rawValue(): { street: string; city: string | null } {
+  return extractValue(wrapped);
+}
+
+/** With a filter, it returns only the fields matching a state — "submit just the dirty ones". */
+export function dirtyOnly(): unknown {
+  return extractValue(wrapped, { dirty: true });
 }

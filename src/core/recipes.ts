@@ -1467,6 +1467,73 @@ export class LoginComponent {
     },
   ],
   [
+    'statusClasses',
+    {
+      construct: 'statusClasses',
+      description:
+        'Reactive Forms stamped ng-valid / ng-invalid / ng-touched / ng-dirty / ng-pristine ' +
+        'onto every bound element, and stylesheets everywhere key off them. Signal Forms does ' +
+        'NOT emit those classes. Nothing warns you: it compiles, it type-checks, the tests ' +
+        'pass, and the error styling silently disappears across the whole app.',
+      before: `/* styles.scss — works because Reactive Forms adds the classes for you */
+.form-input.ng-invalid.ng-touched {
+  border-color: var(--error);
+}
+.form-input.ng-valid.ng-dirty {
+  border-color: var(--success);
+}`,
+      after: `// app.config.ts — one provider restores the classes app-wide.
+import { provideSignalFormsConfig } from '@angular/forms/signals';
+import { NG_STATUS_CLASSES } from '@angular/forms/signals/compat';
+
+// Add to the providers array you already bootstrap with:
+//   bootstrapApplication(App, { providers: [ ...appConfig.providers ] })
+export const appConfig = {
+  providers: [provideSignalFormsConfig({ classes: NG_STATUS_CLASSES })],
+};
+
+// Or map only the classes you actually style:
+provideSignalFormsConfig({
+  classes: {
+    'ng-valid': ({ state }) => state().valid(),
+    'ng-invalid': ({ state }) => state().invalid(),
+    'ng-touched': ({ state }) => state().touched(),
+    'ng-dirty': ({ state }) => state().dirty(),
+  },
+});
+
+// The per-element alternative, if you would rather not reinstate globals:
+// <input [formField]="f.email"
+//        [class.is-invalid]="f.email().touched() && f.email().invalid()">`,
+      caveats: [
+        STABILITY,
+        'CHECK THIS BEFORE MIGRATING ANYTHING, not after. Grep the stylesheets for `ng-` ' +
+          'first: `grep -rn "ng-invalid\\|ng-touched\\|ng-dirty\\|ng-valid\\|ng-pristine" ' +
+          '--include=*.css --include=*.scss`. A hit means every migrated form loses that ' +
+          'styling the moment it converts, and no test or type-check will tell you.',
+        'The migration guide is explicit: "Reactive/Template Forms automatically adds class ' +
+          'attributes (such as `.ng-valid` or `.ng-dirty`) to facilitate styling control ' +
+          'states. Signal Forms does not do that."',
+        'NG_STATUS_CLASSES comes from `@angular/forms/signals/compat`, NOT from ' +
+          '`@angular/forms/signals` — provideSignalFormsConfig lives in the latter, so the ' +
+          'two imports come from different entry points.',
+        'UNVERIFIED — which exact classes NG_STATUS_CLASSES covers. Its API page describes it ' +
+          'only as adding "the ng-* status classes from reactive forms" and does not ' +
+          "enumerate them; the guide's hand-rolled example shows just four (valid, invalid, " +
+          'touched, dirty). If you style ng-pristine, ng-untouched or ng-pending, confirm ' +
+          'those specifically rather than assuming parity.',
+        'Angular also warns off the native CSS pseudo-classes as a substitute: "Do not rely ' +
+          'on native validity features such as the `:valid` and `:invalid` CSS ' +
+          'pseudo-classes" — Signal Forms deliberately does not use browser constraint ' +
+          'validation, since any component can be a control.',
+        'The documented per-element idiom is manual class binding on `touched() && invalid()`, ' +
+          'which is also the documented way to keep errors hidden until the user has ' +
+          'interacted with a field.',
+      ],
+      sources: [DOCS.migration, DOCS.fieldState, DOCS.validation],
+    },
+  ],
+  [
     'ControlValueAccessor',
     {
       construct: 'ControlValueAccessor',
@@ -1909,6 +1976,7 @@ const ALIASES: ReadonlyMap<string, string> = new Map([
   ['formarray.setcontrol', 'FormArray'],
   // Reading state off a form -> signal calls on the field tree.
   ['abstractcontrol.value', 'formStateRead'],
+  ['abstractcontrol.length', 'formStateRead'],
   ['abstractcontrol.valid', 'formStateRead'],
   ['abstractcontrol.invalid', 'formStateRead'],
   ['abstractcontrol.errors', 'formStateRead'],
@@ -1923,6 +1991,7 @@ const ALIASES: ReadonlyMap<string, string> = new Map([
   ['abstractcontrol.setvalue', 'formStateWrite'],
   ['abstractcontrol.patchvalue', 'formStateWrite'],
   ['abstractcontrol.reset', 'formStateWrite'],
+  ['abstractcontrol.defaultvalue', 'formStateWrite'],
   ['abstractcontrol.getrawvalue', 'formStateWrite'],
   ['abstractcontrol.haserror', 'formStateWrite'],
   ['abstractcontrol.markastouched', 'formStateWrite'],
@@ -1935,6 +2004,16 @@ const ALIASES: ReadonlyMap<string, string> = new Map([
   ['abstractcontrol.seterrors', 'formSubmission'],
   ['seterrors', 'formSubmission'],
   ['formsubmission', 'formSubmission'],
+  // The ng-* class loss has no Reactive Forms *construct* to detect — it lives in CSS —
+  // so these spellings are how an agent or a human reaches it.
+  ['statusclasses', 'statusClasses'],
+  ['ng-invalid', 'statusClasses'],
+  ['ng-valid', 'statusClasses'],
+  ['ng-touched', 'statusClasses'],
+  ['ng-dirty', 'statusClasses'],
+  ['ng-pristine', 'statusClasses'],
+  ['cssclasses', 'statusClasses'],
+  ['styling', 'statusClasses'],
   ['submit', 'formSubmission'],
   ['submission', 'formSubmission'],
   ['onsubmit', 'formSubmission'],
@@ -1972,6 +2051,12 @@ const ALIASES: ReadonlyMap<string, string> = new Map([
   ['get', 'AbstractControl.get'],
   ['.get', 'AbstractControl.get'],
   ['abstractcontrol.get', 'AbstractControl.get'],
+  // at()/contains() are the same problem as get(): a keyed lookup into what is now a typed
+  // object. at() goes to the FormArray recipe because index access is an array concern.
+  ['abstractcontrol.at', 'FormArray'],
+  ['abstractcontrol.contains', 'AbstractControl.get'],
+  ['formarray.at', 'FormArray'],
+  ['formgroup.contains', 'AbstractControl.get'],
   ['formgroup.get', 'AbstractControl.get'],
   ['customvalidator', 'customValidator'],
   ['validatorfn', 'customValidator'],

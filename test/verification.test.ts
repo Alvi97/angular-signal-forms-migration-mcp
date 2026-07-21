@@ -1,10 +1,27 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { allRecipes } from '../src/core/recipes.js';
 
 const root = new URL('../', import.meta.url);
 const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, root)), 'utf8');
+
+/**
+ * Every fixture, enumerated rather than listed.
+ *
+ * This was a hardcoded array, and it went stale the moment fixtures were added for the
+ * compat/interop surface: the harness reported the new module as unexercised while the file
+ * exercising it sat right next to the ones on the list. A coverage check that has to be
+ * kept in sync by hand will eventually be wrong in the direction that hides a gap.
+ */
+const FIXTURE_DIR = 'verify/src';
+const fixtureFiles = (): string[] =>
+  readdirSync(fileURLToPath(new URL(FIXTURE_DIR, root)))
+    .filter((name) => name.endsWith('.ts'))
+    .map((name) => `${FIXTURE_DIR}/${name}`)
+    .sort();
+
+const allFixtureText = (): string => fixtureFiles().map(read).join('\n');
 
 /**
  * Guards on the compile harness itself.
@@ -32,13 +49,7 @@ describe('compile verification harness', () => {
   });
 
   it('exercises every module the recipes import from', () => {
-    const fixtures = [
-      'verify/src/smoke.ts',
-      'verify/src/form-state.ts',
-      'verify/src/controls-and-interop.ts',
-    ]
-      .map(read)
-      .join('\n');
+    const fixtures = allFixtureText();
 
     const modules = new Set<string>();
     for (const recipe of allRecipes()) {
@@ -81,13 +92,7 @@ describe('compile verification harness', () => {
  * argument order for any of them and the harness would still have been green.
  */
 describe('every callable API the recipes use is called in a fixture', () => {
-  const fixtures = [
-    'verify/src/smoke.ts',
-    'verify/src/form-state.ts',
-    'verify/src/controls-and-interop.ts',
-  ]
-    .map(read)
-    .join('\n');
+  const fixtures = allFixtureText();
 
   /** Types are adequately proven by the import alone; functions are not. */
   const TYPES_ONLY = new Set(['FormField', 'SchemaPath', 'SchemaPathTree', 'ValidationError']);
