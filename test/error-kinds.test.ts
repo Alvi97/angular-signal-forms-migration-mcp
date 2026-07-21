@@ -48,9 +48,43 @@ describe('every built-in validator recipe states its error kind', () => {
   });
 
   /**
+   * The prose guides only ever illustrate three kinds ("e.g. required, email, minLength").
+   * All seven are published as literals on the per-class API pages, so that is what gets
+   * cited — a stronger position than "it is in the .d.ts".
+   */
+  it.each([
+    ['Validators.required', 'RequiredValidationError'],
+    ['Validators.email', 'EmailValidationError'],
+    ['Validators.min', 'MinValidationError'],
+    ['Validators.max', 'MaxValidationError'],
+    ['Validators.minLength', 'MinLengthValidationError'],
+    ['Validators.maxLength', 'MaxLengthValidationError'],
+    ['Validators.pattern', 'PatternValidationError'],
+  ])('%s cites the API page for %s', (construct, errorClass) => {
+    expect(caveatsFor(construct)).toContain(`https://angular.dev/api/forms/signals/${errorClass}`);
+  });
+
+  /** angular.dev publishes no Reactive-key -> Signal-kind table. The pairing is ours. */
+  it('admits the mapping itself is derived', () => {
+    expect(caveatsFor('Validators.minLength')).toMatch(/no\s+Reactive-to-Signal error-key table/);
+  });
+
+  /**
+   * min()/max() are number-only in v22. A Reactive `Validators.min` on a DATE field does not
+   * map to min() at all — it maps to minDate(), which reports a different kind.
+   */
+  it.each([
+    ['Validators.min', 'minDate'],
+    ['Validators.max', 'maxDate'],
+  ])('%s warns that a date bound reports %s instead', (construct, dateKind) => {
+    expect(caveatsFor(construct)).toContain(dateKind);
+  });
+
+  /**
    * `errors().some(e => e.kind === '…')` is the obvious translation and cannot be written in
-   * an Angular template at all — no arrow functions — which pushes people into building a
-   * computed index per field. getError() is the API for this and needs neither.
+   * an Angular template at all — arrow functions are banned in template expressions, which
+   * is documented. getError() is the narrowing single-error read; whether it belongs in a
+   * template is our inference, guarded separately below.
    */
   it.each([
     ['Validators.required', 'required'],
@@ -63,6 +97,21 @@ describe('every built-in validator recipe states its error kind', () => {
   it('says so on the state-reading recipe too', () => {
     expect(caveatsFor('formStateRead')).toContain('getError(kind)');
   });
+
+  /**
+   * getError() exists and is documented — but ONLY on the FieldState API page, which scopes
+   * its reactivity claim to "a reactive context (e.g. computed or effect)". No Angular guide
+   * mentions it at all; every documented example iterates errors(). Recommending it in a
+   * template is therefore this tool's inference, and has to read as one.
+   */
+  it.each(['Validators.required', 'Validators.minLength', 'formStateRead'])(
+    '%s marks template use of getError() as inference',
+    (construct) => {
+      expect(caveatsFor(construct)).toMatch(
+        /INFERRED, not documented[\s\S]*getError|getError[\s\S]*INFERRED, not documented/,
+      );
+    },
+  );
 });
 
 /**

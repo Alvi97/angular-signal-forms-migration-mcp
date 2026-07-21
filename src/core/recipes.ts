@@ -67,6 +67,7 @@ export const DOCS = {
   migration: 'https://angular.dev/guide/forms/signals/migration',
   formSubmission: 'https://angular.dev/guide/forms/signals/form-submission',
   fieldStateApi: 'https://angular.dev/api/forms/signals/FieldState',
+  templateExpressions: 'https://angular.dev/guide/templates/expression-syntax',
   rxjsInterop: 'https://angular.dev/ecosystem/rxjs-interop',
   schemas: 'https://angular.dev/guide/forms/signals/schemas',
   formBuilderApi: 'https://angular.dev/api/forms/FormBuilder',
@@ -119,20 +120,31 @@ const STABILITY =
  * `errors().some(e => e.kind === 'minlength')` is valid TypeScript that is never true, so
  * the message simply stops appearing with nothing to debug.
  *
- * Every kind here is compile-pinned in verify/src/submission-and-error-kinds.ts.
+ * Every kind here is compile-pinned in verify/src/submission-and-error-kinds.ts, and each
+ * one is published on angular.dev's API reference as a literal (`readonly kind: "minLength"`
+ * on MinLengthValidationError, and so on). The prose guides only ever illustrate three of
+ * them — "e.g. required, email, minLength" — so the per-class API page is the citation.
+ *
+ * The Reactive-key -> Signal-kind MAPPING is this tool's own: angular.dev has no such table
+ * anywhere, so it is assembled from the API pages plus the Reactive Forms validator docs.
  */
-function errorKind(kind: string, reactiveKey = kind): string {
+function errorKind(kind: string, errorClass: string, reactiveKey = kind): string {
   const rename =
     reactiveKey === kind
       ? 'Same spelling as the Reactive Forms error key.'
       : `RENAMED — Reactive Forms reported \`{ ${reactiveKey}: ... }\`. A template still ` +
-        `matching '${reactiveKey}' compiles and silently never fires.`;
+        `matching '${reactiveKey}' compiles and silently never fires. (Angular publishes no ` +
+        'Reactive-to-Signal error-key table; this pairing is derived, though both halves ' +
+        'are documented separately.)';
   return (
-    `ERROR KIND: reports \`{ kind: '${kind}' }\`. A template that read ` +
-    `\`control.errors?.['${reactiveKey}']\` becomes ` +
-    `\`field().getError('${kind}')\` — getError() is reactive and template-callable, so you ` +
-    'do NOT need a computed() index or `errors().some(...)` (templates cannot take arrow ' +
-    `functions). ${rename}`
+    `ERROR KIND: reports \`{ kind: '${kind}' }\` — documented at ` +
+    `https://angular.dev/api/forms/signals/${errorClass}. A template that read ` +
+    `\`control.errors?.['${reactiveKey}']\` can use \`field().getError('${kind}')\`, which ` +
+    'avoids a computed() index and the `errors().some(...)` that templates cannot express ' +
+    '(arrow functions are banned in template expressions). INFERRED, not documented: no ' +
+    'Angular guide shows getError() in a template — its API page scopes the reactivity ' +
+    'claim to "a reactive context (e.g. computed or effect)". Every guide example iterates ' +
+    `\`errors()\` instead. ${rename}`
   );
 }
 
@@ -423,7 +435,7 @@ readonly f = form(this.model, (path) => {
 });`,
       caveats: [
         STABILITY,
-        errorKind('required'),
+        errorKind('required', 'RequiredValidationError'),
         nativeAttribute('required'),
         'VERSION-SENSITIVE emptiness rules. On v22, `null` and the empty string are missing ' +
           '(invalid), and `false` is ALSO missing, matching `<input type="checkbox" required>`. ' +
@@ -463,7 +475,7 @@ readonly f = form(this.model, (path) => {
       caveats: [
         STABILITY,
         // It becomes required(), so it reports required() — not a 'requiredTrue' kind.
-        errorKind('required', 'requiredTrue'),
+        errorKind('required', 'RequiredValidationError', 'requiredTrue'),
         'VERSION-SENSITIVE. This recipe is correct for v22. The v21 docs defined "empty" as ' +
           'null or the empty string only, so on v21 required() PASSES for `false` and this ' +
           'substitution would silently accept an unchecked box. Confirm the project is on v22+ ' +
@@ -495,7 +507,7 @@ readonly f = form(this.model, (path) => {
 });`,
       caveats: [
         STABILITY,
-        errorKind('email'),
+        errorKind('email', 'EmailValidationError'),
         'email() checks format only. Pair it with required() if the field is also mandatory — ' +
           'both rules run, and both can produce errors at once.',
         'Validation does not short-circuit: every rule on a field runs on every change, so ' +
@@ -524,9 +536,12 @@ readonly f = form(this.model, (path) => {
 });`,
       caveats: [
         STABILITY,
-        errorKind('min'),
+        errorKind('min', 'MinValidationError'),
         nativeAttribute('min'),
-        'min() is for numeric values. For string or array length use minLength().',
+        'min() is for numeric values — its API page says it "can only be called on number ' +
+          'paths". For string or array length use minLength(); for a DATE bound use ' +
+          'minDate(), which reports a DIFFERENT kind (`minDate`, not `min`). A Reactive ' +
+          'Validators.min on a date field therefore does not map to min() at all.',
       ],
       sources: [DOCS.validation, DOCS.formLogic],
     },
@@ -546,9 +561,10 @@ readonly f = form(this.model, (path) => {
 });`,
       caveats: [
         STABILITY,
-        errorKind('max'),
+        errorKind('max', 'MaxValidationError'),
         nativeAttribute('max'),
-        'max() is for numeric values. For string or array length use maxLength().',
+        'max() is for numeric values only. For string or array length use maxLength(); for a ' +
+          'DATE bound use maxDate(), which reports kind `maxDate` rather than `max`.',
       ],
       sources: [DOCS.validation, DOCS.formLogic],
     },
@@ -570,7 +586,7 @@ readonly f = form(this.model, (path) => {
 });`,
       caveats: [
         STABILITY,
-        errorKind('minLength', 'minlength'),
+        errorKind('minLength', 'MinLengthValidationError', 'minlength'),
         nativeAttribute('minlength'),
         'minLength() also works on arrays, which makes `minLength(path.items, 1)` the correct ' +
           'way to demand a non-empty list — required() passes for an empty array.',
@@ -593,7 +609,7 @@ readonly f = form(this.model, (path) => {
 });`,
       caveats: [
         STABILITY,
-        errorKind('maxLength', 'maxlength'),
+        errorKind('maxLength', 'MaxLengthValidationError', 'maxlength'),
         nativeAttribute('maxlength'),
         'Counts characters for strings and elements for arrays.',
       ],
@@ -618,7 +634,7 @@ readonly f = form(this.model, (path) => {
 });`,
       caveats: [
         STABILITY,
-        errorKind('pattern'),
+        errorKind('pattern', 'PatternValidationError'),
         'Reactive Forms accepted a string pattern and wrapped it in `^...$`. Pass a RegExp here ' +
           'and anchor it yourself, or the match semantics will differ.',
         'pattern() is the one built-in rule that does NOT mirror to a native attribute. ' +
@@ -1146,12 +1162,20 @@ readonly showWarning = computed(() => this.f().dirty() && this.f().touched());`,
         '`status` (the string union VALID / INVALID / PENDING / DISABLED) has no documented ' +
           'counterpart — Signal Forms exposes separate boolean signals. Rewrite comparisons ' +
           'against the string as valid() / invalid() / pending() checks.',
-        'To ask for ONE error, use `f.email().getError(kind)` rather than filtering ' +
-          '`errors()`. It is reactive, it narrows (a `minLength` error carries `.minLength`), ' +
-          'and — unlike `errors().some(e => ...)` — it can be called straight from a template, ' +
-          'which cannot contain arrow functions. See each validator recipe for its kind.',
+        'To ask for ONE error, `f.email().getError(kind)` narrows (a `minLength` error carries ' +
+          '`.minLength`) and avoids filtering `errors()` by hand. INFERRED, not documented: ' +
+          'calling it from a TEMPLATE. Its API page documents reactivity only "within a ' +
+          'reactive context (e.g. computed or effect)", and no Angular guide mentions ' +
+          'getError() at all — every documented example iterates `errors()`. Templates cannot ' +
+          'contain arrow functions, so the documented alternative is a computed() index.',
       ],
-      sources: [DOCS.essentials, DOCS.fieldState, DOCS.models],
+      sources: [
+        DOCS.essentials,
+        DOCS.fieldState,
+        DOCS.models,
+        DOCS.fieldStateApi,
+        DOCS.templateExpressions,
+      ],
     },
   ],
   [
@@ -1244,11 +1268,16 @@ onSubmit(): void {
         'NO COUNTERPART: markAsUntouched / markAsPristine / markAsPending / setErrors / ' +
           'updateValueAndValidity / enable / disable / setValidators / addValidators / ' +
           'removeValidators. Verified absent by compiling each against v22 field state.',
-        '`markAllAsTouched()` IS covered — `f().markAsTouched()` marks descendants by default, ' +
-          'so the name changed but nothing was lost, and an ' +
-          '`Object.keys(form.controls).forEach(k => ...markAsTouched())` loop collapses to that ' +
-          'one call. Often you can drop it entirely: submit() (and the FormRoot directive) ' +
-          'marks every interactive field touched itself.',
+        '`markAllAsTouched()` IS covered — the field-state guide states that "the default ' +
+          'value of `skipDescendants` is `false`, so the call marks the section field and ' +
+          'each descendant field as touched". So an ' +
+          '`Object.keys(form.controls).forEach(k => ...markAsTouched())` loop collapses to a ' +
+          'single `f().markAsTouched()`, and often can go entirely: submit() (and the ' +
+          'FormRoot directive) marks every interactive field touched itself.',
+        'Touched has a documented exception that Reactive Forms did not: "only interactive ' +
+          'fields can become touched; hidden, disabled, and readonly fields do not become ' +
+          'touched from user interactions or markAsTouched()". A form relying on touched to ' +
+          'reveal errors will skip those fields.',
         'RESET TAKES AN ARGUMENT NOW. The FieldState API page documents reset() as "Resets ' +
           'the touched and dirty state of the field and its descendants", and its value ' +
           'parameter as "Optional value to set to the form. If not passed, the value will ' +
@@ -1262,9 +1291,13 @@ onSubmit(): void {
           "tool's reading of both APIs, and confirm against your own behaviour.",
         '`updateValueAndValidity()` has nothing to replace it — validation reruns ' +
           'automatically whenever a value a rule reads changes.',
-        'enable()/disable() become the `disabled()` rule; setValidators()/addValidators() ' +
-          'become `applyWhen()`. The migration docs note that on the SignalFormControl compat ' +
-          'class these imperative calls actively THROW, which is a good signal of intent.',
+        'enable()/disable() become the `disabled()` rule; setValidators()/addValidators()/' +
+          'removeValidators() become `applyWhen()`. On the SignalFormControl compat class the ' +
+          'migration guide says outright that "attempting to call disable/enable would throw ' +
+          'an error" and the same for the validator methods — a clear signal of intent.',
+        'Do NOT extend that to setErrors()/markAsPending(). The same guide files those under ' +
+          '"not supported" and never says they throw, so predicting a throw for them would be ' +
+          'inventing behaviour. Errors are derived from rules; see the formSubmission recipe.',
         'setErrors() has a direct documented replacement, and it is NOT an async validator: ' +
           'return the error from the submit() action and Angular routes it to the field. See ' +
           'the `formSubmission` recipe — this is the single most common reason setErrors() ' +
