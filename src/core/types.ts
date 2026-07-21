@@ -71,6 +71,7 @@ export const DETECTED_CONSTRUCTS = [
   'FormArray.clear',
   'FormArray.setControl',
   'asyncValidator',
+  'deadValidatorOption',
 
   // M5 — reading and writing form state
   'AbstractControl.value',

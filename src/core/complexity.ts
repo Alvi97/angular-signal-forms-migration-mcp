@@ -33,13 +33,24 @@ interface FileWeight {
  * Sort key: files with no judgment calls first, then fewest judgment calls, then
  * smallest, then by path so the output is deterministic.
  */
+/** Sort bucket: validators decide first, references cannot go alone, owners in between. */
+function bucket(role: FileRole): number {
+  if (role === 'validators') return 0;
+  if (role === 'owner') return 1;
+  return 2;
+}
+
 function compareWeights(a: FileWeight, b: FileWeight): number {
-  // Reference-only files sort last regardless of size. A wrapper holding a single cast on
-  // a sibling's form looks like the easiest file in the repo and is in fact un-migratable
-  // on its own, so it must never be offered as the pilot.
-  const aReference = a.role === 'reference';
-  const bReference = b.role === 'reference';
-  if (aReference !== bReference) return aReference ? 1 : -1;
+  // Buckets before size. Two reasons, both learned from readers of a real report:
+  //
+  // Shared validators sort FIRST even though they are usually the hardest file. Their
+  // error shape gates every consumer, so the design has to be settled before anything
+  // downstream can be finished. Ranking them last by judgment count while the report
+  // simultaneously says "decide these early" is a document contradicting itself.
+  //
+  // Reference-only files sort LAST regardless of size. A wrapper holding one cast on a
+  // sibling's form looks like the easiest file in the repo and cannot be migrated alone.
+  if (a.role !== b.role) return bucket(a.role) - bucket(b.role);
   if (a.judgment !== b.judgment) return a.judgment - b.judgment;
   if (a.total !== b.total) return a.total - b.total;
   return a.file.localeCompare(b.file);

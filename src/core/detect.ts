@@ -445,6 +445,7 @@ function collectFromNode(node: ts.Node, names: BoundNames, out: FindingDraft[]):
   }
   if (ts.isPropertyAssignment(node)) {
     collectFromAsyncValidatorsOption(node, out);
+    collectFromDeadValidatorOption(node, out);
     return;
   }
   if (ts.isPropertyAccessExpression(node)) {
@@ -703,6 +704,55 @@ function collectFromShapeMutation(
       'the model signal, so there is no imperative equivalent — the shape must become data ' +
       'in the model (a list you update, or a field gated by hidden()/applyWhen()).',
   });
+}
+
+/**
+ * `{ validator: fn }` — the SINGULAR key, which AbstractControlOptions does not declare.
+ *
+ * TypeScript accepts it silently through excess-property tolerance in some positions, and
+ * Angular ignores it, so the validator simply never runs. Found in a real codebase where a
+ * password-match check had been dead the whole time while three template branches tested
+ * for its error. Reported because a faithful migration would carry the dead code across.
+ */
+function collectFromDeadValidatorOption(node: ts.PropertyAssignment, out: FindingDraft[]): void {
+  const key = declaredName(node.name);
+  if (key !== 'validator' && key !== 'asyncValidator') return;
+
+  // Only inside an options object passed to a form constructor, so an unrelated
+  // `{ validator: fn }` config object elsewhere is not swept in.
+  if (!isFormOptionsObject(node.parent)) return;
+
+  out.push({
+    construct: 'deadValidatorOption',
+    node,
+    classification: 'judgment',
+    reason:
+      `\`${key}\` is not a valid AbstractControlOptions key — the correct name is ` +
+      `\`${key}s\` (plural). Angular ignores the unknown key, so this validator has ` +
+      'never run. Fix it before migrating, and check whether the behaviour it was ' +
+      'supposed to enforce is relied on: a faithful migration would carry the dead code ' +
+      'across, and templates may be testing for an error that can never appear.',
+  });
+}
+
+/**
+ * True when this object literal is an argument to a form constructor — `fb.group({...},
+ * HERE)` or `new FormGroup({...}, HERE)`.
+ */
+function isFormOptionsObject(node: ts.Node | undefined): boolean {
+  if (node === undefined || !ts.isObjectLiteralExpression(node)) return false;
+
+  const parent: ts.Node | undefined = node.parent;
+  if (parent === undefined) return false;
+
+  if (ts.isNewExpression(parent) && ts.isIdentifier(parent.expression)) {
+    return CONTROL_TYPES.has(parent.expression.text);
+  }
+  if (ts.isCallExpression(parent) && ts.isPropertyAccessExpression(parent.expression)) {
+    const method = declaredName(parent.expression.name);
+    return method === 'group' || method === 'array' || method === 'control';
+  }
+  return false;
 }
 
 /** `new FormControl('', { asyncValidators: [...] })` and the fb.group equivalent. */

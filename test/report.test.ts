@@ -63,11 +63,21 @@ describe('buildMigrationReport', () => {
     expect(report).toContain('FormArray');
   });
 
-  it('gives the suggested order simplest-first', () => {
+  it('orders form owners simplest-first', () => {
     const login = report.indexOf('login.component.ts');
-    const validators = report.indexOf('validators.ts');
+    const order = report.indexOf('order.component.ts');
     expect(login).toBeGreaterThan(-1);
-    expect(login).toBeLessThan(validators);
+    // login has 0 judgment calls, order has 2.
+    expect(login).toBeLessThan(order);
+  });
+
+  it('labels each row with why it sits there', () => {
+    expect(report).toContain('| Role |');
+    expect(report).toContain('form owner');
+  });
+
+  it('explains that shared validators lead for design reasons, not ease', () => {
+    expect(report).toMatch(/Decide their design first/i);
   });
 
   it('names every judgment finding with its line and reason', () => {

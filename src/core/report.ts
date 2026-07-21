@@ -199,13 +199,17 @@ export function buildMigrationReport(
   lines.push('## Suggested order');
   lines.push('');
   lines.push(
-    'Simplest first: files with no judgment calls come before those that have them, then ' +
-      'fewest judgment calls, then smallest. Migrating in this order settles the model shape ' +
-      'on easy files before the hard ones depend on it.',
+    'Shared validators come first — not because they are easy, but because their error ' +
+      'shape gates every consumer, so nothing downstream can be finalised until it is ' +
+      'settled. **Decide their design first; convert them whenever.** After that, form ' +
+      'owners simplest-first (no judgment calls before any, then fewest, then smallest), ' +
+      'which settles the model shape on easy files before hard ones depend on it. Files ' +
+      'that only reference a form defined elsewhere come last — they cannot be migrated ' +
+      'alone at all.',
   );
   lines.push('');
-  lines.push('| # | File | Findings | Mechanical | Judgment |');
-  lines.push('| --- | --- | --- | --- | --- |');
+  lines.push('| # | File | Role | Findings | Mechanical | Judgment |');
+  lines.push('| --- | --- | --- | --- | --- | --- |');
 
   const byPath = new Map(withFindings.map((entry) => [entry.file, entry] as const));
   complexity.suggestedOrder.forEach((file, index) => {
@@ -213,9 +217,14 @@ export function buildMigrationReport(
     if (entry === undefined) return;
     const judgment = entry.findings.filter((f) => f.classification === 'judgment').length;
     const mechanical = entry.findings.length - judgment;
+    const role = complexity.sharedValidatorFiles.includes(file)
+      ? 'decide first'
+      : complexity.referenceOnlyFiles.includes(file)
+        ? 'reference only'
+        : 'form owner';
     lines.push(
-      `| ${String(index + 1)} | \`${shortPath(file, root)}\` | ${String(entry.findings.length)} ` +
-        `| ${String(mechanical)} | ${String(judgment)} |`,
+      `| ${String(index + 1)} | \`${shortPath(file, root)}\` | ${role} ` +
+        `| ${String(entry.findings.length)} | ${String(mechanical)} | ${String(judgment)} |`,
     );
   });
   lines.push('');

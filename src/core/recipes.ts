@@ -850,6 +850,67 @@ export class Shipping {
     },
   ],
   [
+    'deadValidatorOption',
+    {
+      construct: 'deadValidatorOption',
+      description:
+        'NOT a migration step — a live bug. `validator` / `asyncValidator` (singular) are ' +
+        'not AbstractControlOptions keys; the plural forms are. Angular ignores the unknown ' +
+        'key, so the validator never runs. Fix this BEFORE migrating.',
+      before: `// The typo: singular \`validator\`, silently ignored by Angular.
+this.resetPasswordForm = this.fb.group(
+  {
+    password: ['', [Validators.required, Validators.minLength(8)]],
+    confirmPassword: ['', [Validators.required]],
+  },
+  { validator: this.checkPasswords },
+);
+
+// Meanwhile the template tests for an error that can never appear:
+//   <div *ngIf="resetPasswordForm.hasError('notMatching')">Passwords do not match</div>`,
+      after: `// 1. FIRST, in the code you have today — one word:
+this.resetPasswordForm = this.fb.group(
+  {
+    password: ['', [Validators.required, Validators.minLength(8)]],
+    confirmPassword: ['', [Validators.required]],
+  },
+  { validators: this.checkPasswords },
+);
+
+// 2. Confirm the behaviour is actually wanted. It has never run, so the app has been
+//    shipping without it — turning it on may surface failures users never saw.
+
+// 3. THEN migrate, attaching the rule to the field that should show the error:
+import { form, minLength, required, validate } from '@angular/forms/signals';
+
+readonly f = form(this.model, (path) => {
+  required(path.password);
+  minLength(path.password, 8);
+  validate(path.confirmPassword, ({ value, valueOf }) =>
+    value() === valueOf(path.password)
+      ? null
+      : { kind: 'passwordMismatch', message: 'Passwords do not match' },
+  );
+});`,
+      caveats: [
+        STABILITY,
+        'Fix this in the CURRENT code first, as its own change. Rolling a behaviour fix into ' +
+          'a migration diff makes it impossible to tell which one broke something.',
+        'The validator has never executed, so enabling it is a BEHAVIOUR CHANGE, not a ' +
+          'no-op. Data or flows that depended on the check being absent will start failing ' +
+          'validation. Confirm that is wanted before flipping it on.',
+        'Check the templates: they may test for an error kind that has never been produced ' +
+          '(`hasError("notMatching")`). Those branches are dead too.',
+        'If the check turns out to be unwanted, delete the validator and the dead template ' +
+          'branches rather than migrating them — carrying dead code across a rewrite buries ' +
+          'it deeper.',
+        'Signal Forms would not have allowed this: schema rules are function calls, so a ' +
+          'misspelled rule name is a compile error rather than a silently ignored key.',
+      ],
+      sources: [DOCS.validation, DOCS.essentials],
+    },
+  ],
+  [
     'asyncValidator',
     {
       construct: 'asyncValidator',
@@ -1559,6 +1620,8 @@ const ALIASES: ReadonlyMap<string, string> = new Map([
   ['statuschangesasyncpipeline', 'valueChangesAsyncPipeline'],
   ['tosignal', 'valueChangesAsyncPipeline'],
   ['toobservable', 'valueChangesAsyncPipeline'],
+  ['deadvalidatoroption', 'deadValidatorOption'],
+  ['validator', 'deadValidatorOption'],
   ['asyncvalidatorfn', 'asyncValidator'],
   ['asyncvalidators', 'asyncValidator'],
   ['validatehttp', 'asyncValidator'],

@@ -153,3 +153,49 @@ export function strictEmail(): ValidatorFn {
     expect(result.suggestedOrder.at(-1)).toBe('/repo/wrapper.ts');
   });
 });
+
+describe('shared validators are ordered to match the advice given about them', () => {
+  const IMP = `import { AbstractControl, FormBuilder, ValidatorFn } from '@angular/forms';`;
+
+  const validators: FileFindings = {
+    file: '/repo/shared/validators.ts',
+    findings: detectInSource(
+      '/repo/shared/validators.ts',
+      `${IMP}
+export function a(): ValidatorFn { return (c: AbstractControl) => null; }
+export function b(): ValidatorFn { return (c: AbstractControl) => null; }`,
+    ),
+  };
+  const easyForm: FileFindings = {
+    file: '/repo/login.ts',
+    findings: detectInSource(
+      '/repo/login.ts',
+      `${IMP}
+export class L { constructor(private fb: FormBuilder) {} form = this.fb.group({ a: [''] }); }`,
+    ),
+  };
+
+  it('ranks a shared validator file FIRST, not last', () => {
+    // The report tells the reader to settle these early because their error shape gates
+    // every consumer. Ranking them last by judgment count contradicts that in the same
+    // document — which is exactly what a reader called out.
+    const result = analyzeMigrationComplexity([easyForm, validators]);
+    expect(result.suggestedOrder[0]).toBe('/repo/shared/validators.ts');
+  });
+
+  it('still puts un-migratable references last', () => {
+    const wrapper: FileFindings = {
+      file: '/repo/w.ts',
+      findings: detectInSource(
+        '/repo/w.ts',
+        `import { FormArray } from '@angular/forms';\nexport class W { get r() { return this.p.f as FormArray; } }`,
+      ),
+    };
+    const result = analyzeMigrationComplexity([wrapper, easyForm, validators]);
+    expect(result.suggestedOrder).toEqual([
+      '/repo/shared/validators.ts',
+      '/repo/login.ts',
+      '/repo/w.ts',
+    ]);
+  });
+});

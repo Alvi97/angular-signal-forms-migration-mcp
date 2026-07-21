@@ -54,13 +54,24 @@ describe('analyzeMigrationComplexity', () => {
     expect(result.byConstruct['asyncValidator']).toBe(1);
   });
 
-  it('orders files simplest-first: all-mechanical before any judgment', () => {
+  it('orders shared validators first, then form owners simplest-first', () => {
     const result = analyzeMigrationComplexity([HARD, MIXED, SIMPLE]);
 
+    // validators.ts defines validators and owns no form. It is the HARDEST file here
+    // (2 judgment, 0 mechanical) and still sorts first, because its error shape gates
+    // every consumer — the report tells the reader to settle it early, so the ordering
+    // has to agree with the prose rather than contradict it in the same document.
     expect(result.suggestedOrder).toEqual([
+      '/app/validators.ts',
       '/app/login.ts',
       '/app/register.ts',
-      '/app/validators.ts',
+    ]);
+  });
+
+  it('orders form owners among themselves by judgment count, then size', () => {
+    expect(analyzeMigrationComplexity([MIXED, SIMPLE]).suggestedOrder).toEqual([
+      '/app/login.ts',
+      '/app/register.ts',
     ]);
   });
 
