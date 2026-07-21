@@ -854,31 +854,46 @@ export class Shipping {
     {
       construct: 'deadValidatorOption',
       description:
-        'NOT a migration step — a live bug. `validator` / `asyncValidator` (singular) are ' +
-        'not AbstractControlOptions keys; the plural forms are. Angular ignores the unknown ' +
-        'key, so the validator never runs. Fix this BEFORE migrating.',
-      before: `// The typo: singular \`validator\`, silently ignored by Angular.
-this.resetPasswordForm = this.fb.group(
+        'NOT a migration step — a possible live bug. `validator` / `asyncValidator` ' +
+        '(singular) are not AbstractControlOptions keys. Passed to `new FormGroup(...)` ' +
+        'the validator is silently dropped. Passed to `fb.group(...)` it is NOT — ' +
+        'FormBuilder maps the legacy key. Confirm which form you have, and confirm at ' +
+        'runtime, before changing anything.',
+      before: `// DROPPED — the constructor form reads options.validators, which is undefined:
+this.form = new FormGroup(
   {
-    password: ['', [Validators.required, Validators.minLength(8)]],
-    confirmPassword: ['', [Validators.required]],
+    password: new FormControl('', [Validators.required]),
+    confirmPassword: new FormControl(''),
   },
   { validator: this.checkPasswords },
 );
 
-// Meanwhile the template tests for an error that can never appear:
-//   <div *ngIf="resetPasswordForm.hasError('notMatching')">Passwords do not match</div>`,
-      after: `// 1. FIRST, in the code you have today — one word:
-this.resetPasswordForm = this.fb.group(
+// NOT dropped — FormBuilder maps the legacy singular key to validators:
+this.form = this.fb.group(
+  { password: [''], confirmPassword: [''] },
+  { validator: this.checkPasswords },
+);`,
+      after: `// 1. FIRST prove which case you have. A static scan cannot see Angular's
+//    runtime fallback, so assert the behaviour before changing anything:
+//
+//      it('rejects mismatched passwords', () => {
+//        component.form.setValue({ password: 'a', confirmPassword: 'b' });
+//        expect(component.form.hasError('notMatching')).toBe(true);
+//      });
+//
+//    Passing on the CURRENT code means the validator already runs (FormBuilder), and
+//    there is no bug — only an implicit reliance on a legacy path.
+
+// 2. Either way, prefer the explicit plural key in the code you have today:
+import { Validators } from '@angular/forms';
+
+this.form = this.fb.group(
   {
     password: ['', [Validators.required, Validators.minLength(8)]],
     confirmPassword: ['', [Validators.required]],
   },
   { validators: this.checkPasswords },
 );
-
-// 2. Confirm the behaviour is actually wanted. It has never run, so the app has been
-//    shipping without it — turning it on may surface failures users never saw.
 
 // 3. THEN migrate, attaching the rule to the field that should show the error:
 import { form, minLength, required, validate } from '@angular/forms/signals';
@@ -894,18 +909,22 @@ readonly f = form(this.model, (path) => {
 });`,
       caveats: [
         STABILITY,
-        'Fix this in the CURRENT code first, as its own change. Rolling a behaviour fix into ' +
-          'a migration diff makes it impossible to tell which one broke something.',
-        'The validator has never executed, so enabling it is a BEHAVIOUR CHANGE, not a ' +
-          'no-op. Data or flows that depended on the check being absent will start failing ' +
-          'validation. Confirm that is wanted before flipping it on.',
-        'Check the templates: they may test for an error kind that has never been produced ' +
-          '(`hasError("notMatching")`). Those branches are dead too.',
-        'If the check turns out to be unwanted, delete the validator and the dead template ' +
-          'branches rather than migrating them — carrying dead code across a rewrite buries ' +
-          'it deeper.',
-        'Signal Forms would not have allowed this: schema rules are function calls, so a ' +
-          'misspelled rule name is a compile error rather than a silently ignored key.',
+        'VERIFY BEFORE YOU ACT. This is a static shape match, and Angular treats the two ' +
+          'construction paths differently. `new FormGroup(c, { validator: fn })` drops it ' +
+          '(isOptionsObj is true, so pickValidators reads the absent `.validators`). ' +
+          '`fb.group(c, { validator: fn })` keeps it (isAbstractControlOptions is false, so ' +
+          'a legacy branch assigns `validators = options.validator`). Only the first is a bug.',
+        'Write the failing test first. If it passes on unmodified code, the validator is ' +
+          'already running and there is nothing to fix — only an implicit dependency on a ' +
+          'legacy path worth making explicit.',
+        'If it genuinely never ran, enabling it is a BEHAVIOUR CHANGE, not a no-op. Data ' +
+          'and flows that depended on the check being absent will start failing validation.',
+        'Check the templates either way: they may branch on an error kind that has never ' +
+          'been produced.',
+        'Fix this in the current code first, as its own change. Rolling a behaviour fix ' +
+          'into a migration diff makes a regression impossible to attribute.',
+        'Signal Forms removes the whole class: schema rules are function calls, so a ' +
+          'misspelled rule is a compile error rather than a silently ignored key.',
       ],
       sources: [DOCS.validation, DOCS.essentials],
     },

@@ -18,7 +18,7 @@ import type { FileFindings } from '../src/core/types.js';
  * that half-lands fails here instead of in a reader's report.
  */
 
-const IMPORT = `import { AbstractControl, FormArray, FormBuilder, Validators, ValidatorFn } from '@angular/forms';`;
+const IMPORT = `import { AbstractControl, FormArray, FormBuilder, FormControl, FormGroup, Validators, ValidatorFn } from '@angular/forms';`;
 
 function file(path: string, source: string): FileFindings {
   return { file: path, findings: detectInSource(path, `${IMPORT}\n${source}`) };
@@ -42,7 +42,8 @@ const WORKSPACE: readonly FileFindings[] = [
     '/repo/hard.component.ts',
     `export class H {
        form: FormGroup;
-       constructor(private fb: FormBuilder) { this.form = this.fb.group({ a: [''] }, { validator: this.chk }); }
+       form2 = new FormGroup({ a: new FormControl('') }, { validator: this.chk });
+       constructor(private fb: FormBuilder) { this.form = this.fb.group({ a: [''] }); }
        go() {
          Object.keys(this.form.controls).forEach((k) => this.form.get(k)?.markAsTouched());
          this.form.valueChanges.subscribe(() => this.x());
@@ -255,9 +256,9 @@ describe('live bugs are surfaced, not buried', () => {
   const buggy: readonly FileFindings[] = [
     file(
       '/repo/reset.component.ts',
+      // The constructor form, which really does drop the validator. fb.group does not.
       `export class R {
-         constructor(private fb: FormBuilder) {}
-         form = this.fb.group({ a: [''] }, { validator: this.chk });
+         form = new FormGroup({ a: new FormControl('') }, { validator: this.chk });
        }`,
     ),
     ...WORKSPACE,

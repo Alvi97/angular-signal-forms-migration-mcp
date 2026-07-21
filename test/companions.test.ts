@@ -29,9 +29,9 @@ describe('inferUpgradeOptions answers the wizard from evidence', () => {
 
   it('detects ngUpgrade from @angular/upgrade', () => {
     expect(inferUpgradeOptions(MOCKIO).ngUpgrade).toBe(false);
-    expect(
-      inferUpgradeOptions({ dependencies: { '@angular/upgrade': '^19.0.0' } }).ngUpgrade,
-    ).toBe(true);
+    expect(inferUpgradeOptions({ dependencies: { '@angular/upgrade': '^19.0.0' } }).ngUpgrade).toBe(
+      true,
+    );
   });
 
   it('never throws on a malformed or empty manifest', () => {

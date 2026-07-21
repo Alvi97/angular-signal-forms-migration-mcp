@@ -5,6 +5,9 @@
  * recipes written — least researched, least reviewed. Everything the recipes claim about
  * reading and writing form state is exercised here against real @angular/forms v22.
  */
+// Also referenced by the deadValidatorOption recipe, which shows the pre-migration fix
+// in Reactive Forms before the Signal Forms rewrite.
+import { Validators } from '@angular/forms';
 import { computed, signal } from '@angular/core';
 import { applyWhen, disabled, form, required, submit } from '@angular/forms/signals';
 
@@ -16,6 +19,8 @@ interface Model {
 }
 
 const INITIAL: Model = { name: '', email: '', code: '', address: { street: '', city: '' } };
+
+export const legacyValidators = Validators.required;
 
 export class ProfileFixture {
   readonly model = signal<Model>({ ...INITIAL });

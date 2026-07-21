@@ -709,50 +709,57 @@ function collectFromShapeMutation(
 /**
  * `{ validator: fn }` — the SINGULAR key, which AbstractControlOptions does not declare.
  *
- * TypeScript accepts it silently through excess-property tolerance in some positions, and
- * Angular ignores it, so the validator simply never runs. Found in a real codebase where a
- * password-match check had been dead the whole time while three template branches tested
- * for its error. Reported because a faithful migration would carry the dead code across.
+ * ONLY reported for `new FormGroup/FormControl/FormArray`, never for FormBuilder. The two
+ * take opposite paths through Angular's own source, and an earlier version of this check
+ * conflated them — telling a user their password-match validator had never run when it had:
+ *
+ *   new FormGroup(c, { validator: fn })
+ *     isOptionsObj({validator}) is TRUE (any non-array object), so pickValidators reads
+ *     `.validators`, finds undefined, and the validator IS DROPPED.
+ *
+ *   fb.group(c, { validator: fn })
+ *     isAbstractControlOptions({validator}) is FALSE (it looks for validators /
+ *     asyncValidators / updateOn), so it falls into a legacy branch that assigns
+ *     `newOptions.validators = options.validator` — the validator RUNS.
+ *
+ * Verified against @angular/forms@22 source: pickValidators/isOptionsObj around forms.mjs
+ * :809-828, FormBuilder.group around :5480.
  */
 function collectFromDeadValidatorOption(node: ts.PropertyAssignment, out: FindingDraft[]): void {
   const key = declaredName(node.name);
   if (key !== 'validator' && key !== 'asyncValidator') return;
 
-  // Only inside an options object passed to a form constructor, so an unrelated
-  // `{ validator: fn }` config object elsewhere is not swept in.
-  if (!isFormOptionsObject(node.parent)) return;
+  // Only `new FormX(...)`, never fb.group(...) — see the note above.
+  if (!isConstructorOptionsObject(node.parent)) return;
 
   out.push({
     construct: 'deadValidatorOption',
     node,
     classification: 'judgment',
     reason:
-      `\`${key}\` is not a valid AbstractControlOptions key — the correct name is ` +
-      `\`${key}s\` (plural). Angular ignores the unknown key, so this validator has ` +
-      'never run. Fix it before migrating, and check whether the behaviour it was ' +
-      'supposed to enforce is relied on: a faithful migration would carry the dead code ' +
-      'across, and templates may be testing for an error that can never appear.',
+      `\`${key}\` is not an AbstractControlOptions key — the plural \`${key}s\` is. ` +
+      'Passed to `new FormGroup/FormControl/FormArray`, Angular reads `.validators` off ' +
+      'the options object, finds nothing, and this validator never runs. (FormBuilder is ' +
+      'NOT affected — fb.group maps the legacy singular key, which is why this is only ' +
+      'reported for the constructor form.) Verify at runtime before acting: a faithful ' +
+      'migration would carry dead code across, and templates may test for an error that ' +
+      'can never appear.',
   });
 }
 
 /**
- * True when this object literal is an argument to a form constructor — `fb.group({...},
- * HERE)` or `new FormGroup({...}, HERE)`.
+ * True when this object literal is an argument to `new FormGroup/FormControl/FormArray`.
+ *
+ * Deliberately excludes FormBuilder calls: they accept the legacy singular key and map it,
+ * so flagging them produces a false report of dead validation.
  */
-function isFormOptionsObject(node: ts.Node | undefined): boolean {
+function isConstructorOptionsObject(node: ts.Node | undefined): boolean {
   if (node === undefined || !ts.isObjectLiteralExpression(node)) return false;
 
   const parent: ts.Node | undefined = node.parent;
   if (parent === undefined) return false;
-
-  if (ts.isNewExpression(parent) && ts.isIdentifier(parent.expression)) {
-    return CONTROL_TYPES.has(parent.expression.text);
-  }
-  if (ts.isCallExpression(parent) && ts.isPropertyAccessExpression(parent.expression)) {
-    const method = declaredName(parent.expression.name);
-    return method === 'group' || method === 'array' || method === 'control';
-  }
-  return false;
+  if (!ts.isNewExpression(parent) || !ts.isIdentifier(parent.expression)) return false;
+  return CONTROL_TYPES.has(parent.expression.text);
 }
 
 /** `new FormControl('', { asyncValidators: [...] })` and the fb.group equivalent. */
