@@ -2,8 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { availableConstructs, getSignalFormsRecipe } from '../src/core/recipes.js';
 import { DETECTED_CONSTRUCTS, recipeSchema } from '../src/core/types.js';
 
-/** Constructs the detector emits in M1 that deliberately have no recipe yet. */
-const DEFERRED_TO_M3 = ['valueChanges', 'statusChanges'] as const;
+/**
+ * Constructs the detector emits that deliberately have no recipe yet.
+ *
+ * Empty as of M3: valueChanges/statusChanges were the last documented gap and are now
+ * covered by the three tiered stream recipes. Keep the list — it is how a future
+ * milestone records a gap without the coverage test silently failing.
+ */
+const DEFERRED: readonly string[] = [];
 
 describe('getSignalFormsRecipe', () => {
   it('returns a verified recipe for a mechanical construct', () => {
@@ -73,17 +79,45 @@ describe('recipe coverage', () => {
   // answerable by get_signalforms_recipe. Several constructs reach their recipe through
   // an alias (every shape-mutating method resolves to `dynamicControls`), so this asserts
   // the lookup succeeds rather than that a canonical key exists.
-  it.each(DETECTED_CONSTRUCTS.filter((c) => !DEFERRED_TO_M3.includes(c as never)))(
+  it.each(DETECTED_CONSTRUCTS.filter((c) => !DEFERRED.includes(c)))(
     'resolves a recipe for %s',
     (construct) => {
       expect(getSignalFormsRecipe(construct).found, construct).toBe(true);
     },
   );
 
-  it.each(DEFERRED_TO_M3)('reports %s as a documented gap, not a crash', (construct) => {
-    // Detected in M1, recipe deferred to M3 (RxJS interop). See ROADMAP.md.
-    const result = getSignalFormsRecipe(construct);
-    expect(result.found).toBe(false);
+  it('has no remaining documented gaps', () => {
+    // If a future milestone defers a construct, add it to DEFERRED and assert here that
+    // the lookup returns a structured miss rather than throwing.
+    for (const construct of DEFERRED) {
+      expect(getSignalFormsRecipe(construct).found, construct).toBe(false);
+    }
+    expect(DEFERRED).toEqual([]);
+  });
+
+  it('answers every RxJS stream tier with its own recipe', () => {
+    for (const construct of [
+      'valueChanges',
+      'statusChanges',
+      'valueChangesPipeline',
+      'statusChangesPipeline',
+      'valueChangesAsyncPipeline',
+      'statusChangesAsyncPipeline',
+    ]) {
+      expect(getSignalFormsRecipe(construct).found, construct).toBe(true);
+    }
+  });
+
+  it('does not claim a mechanical rewrite exists for the hard operator tier', () => {
+    const result = getSignalFormsRecipe('valueChangesAsyncPipeline');
+    expect(result.found).toBe(true);
+    if (!result.found) return;
+
+    expect(result.description).toContain('no direct signal equivalent');
+    expect(result.caveats.some((c) => c.includes('DO NOT expect a mechanical rewrite'))).toBe(true);
+    // It must offer real strategies rather than a single pretend answer.
+    expect(result.after).toContain('rxResource');
+    expect(result.after).toContain('toObservable');
   });
 
   it('exposes constructs sorted, so tool output is stable', () => {

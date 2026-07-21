@@ -61,6 +61,26 @@ version and so cannot choose for you.
 
 Recipes carry a `caveats` array. Read it — that is where the sharp edges live.
 
+## It tells you when there is no clean answer
+
+Not every Reactive Forms pattern has a Signal Forms equivalent, and a migration tool that
+pretends otherwise is worse than none. Form streams are graded by the RxJS operators in
+their `.pipe()` chain:
+
+| Tier | Operators | Answer |
+| --- | --- | --- |
+| trivial | none / bare `subscribe` | `computed()`, or `effect()` for a real side effect |
+| moderate | `map`, `filter`, `debounceTime`, `distinctUntilChanged`, … | `computed()` + the `debounce()` schema rule |
+| hard | `switchMap`, `combineLatest`, `withLatestFrom`, `forkJoin`, … | **no direct equivalent** |
+
+For the hard tier the recipe says so outright and offers three real strategies —
+async validation rules, `rxResource`, or keeping RxJS behind `toObservable`/`toSignal` —
+rather than inventing a one-liner that does not exist.
+
+Likewise `addControl()` / `removeControl()` have no counterpart at all: the field tree is
+derived from the model signal's type. The recipe explains the three actual answers instead
+of implying an API that would not compile.
+
 ## Composes with the official Angular MCP server
 
 This server is deliberately narrow: it knows about *migration*. Run it alongside the

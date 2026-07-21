@@ -117,6 +117,46 @@ const GROUP_MUTATORS: ReadonlySet<string> = new Set([
   'registerControl',
 ]);
 
+/**
+ * RxJS operator tiers for a form stream.
+ *
+ * Scope: this analysis is rooted at `.valueChanges` / `.statusChanges` only, so it can
+ * never wander into unrelated RxJS. Classifying arbitrary observables is a different
+ * product — see ROADMAP.md.
+ *
+ * `moderate` operators are value transforms with a documented signal equivalent
+ * (computed / the debounce() rule). `hard` operators coordinate other async sources, and
+ * signals have no direct equivalent — the recipe says so rather than inventing one.
+ */
+const MODERATE_OPERATORS: ReadonlySet<string> = new Set([
+  'map',
+  'filter',
+  'debounceTime',
+  'distinctUntilChanged',
+  'distinctUntilKeyChanged',
+  'startWith',
+  'tap',
+  'pairwise',
+  'skip',
+  'take',
+]);
+
+const HARD_OPERATORS: ReadonlySet<string> = new Set([
+  'switchMap',
+  'mergeMap',
+  'concatMap',
+  'exhaustMap',
+  'flatMap',
+  'combineLatest',
+  'combineLatestWith',
+  'withLatestFrom',
+  'forkJoin',
+  'zip',
+  'merge',
+  'scan',
+  'reduce',
+]);
+
 const ARRAY_MUTATORS: ReadonlySet<string> = new Set([
   'push',
   'removeAt',
@@ -361,12 +401,66 @@ function collectFromNode(node: ts.Node, names: BoundNames, out: FindingDraft[]):
     collectFromTypeReference(node, out);
     return;
   }
+  if (ts.isClassDeclaration(node)) {
+    collectControlValueAccessor(node, out);
+    return;
+  }
   if (ts.isFunctionLike(node)) {
     collectCustomValidatorDeclaration(node, out);
   }
   if (ts.isParameter(node)) {
     collectFormBuilderInjection(node, out);
   }
+}
+
+/**
+ * A ControlValueAccessor component. v22 replaces the whole interface with
+ * `FormValueControl` / `FormCheckboxControl`.
+ *
+ * Reported once per class, from the class declaration, because a CVA is recognisable two
+ * ways — `implements ControlValueAccessor` and the `NG_VALUE_ACCESSOR` provider — and real
+ * components almost always do both. Reporting each separately would double-count.
+ */
+function collectControlValueAccessor(node: ts.ClassDeclaration, out: FindingDraft[]): void {
+  const implementsCva = (node.heritageClauses ?? []).some(
+    (clause) =>
+      clause.token === ts.SyntaxKind.ImplementsKeyword &&
+      clause.types.some(
+        (type) =>
+          ts.isIdentifier(type.expression) && type.expression.text === 'ControlValueAccessor',
+      ),
+  );
+
+  const providesValueAccessor = providesNgValueAccessor(node);
+  if (!implementsCva && !providesValueAccessor) return;
+
+  out.push({
+    construct: 'ControlValueAccessor',
+    node,
+    classification: 'judgment',
+    reason:
+      'ControlValueAccessor is replaced by the FormValueControl / FormCheckboxControl ' +
+      'interfaces. The four-method callback protocol (writeValue / registerOnChange / ' +
+      'registerOnTouched / setDisabledState) collapses into a `value` model signal plus ' +
+      'optional state inputs, so the component is rewritten rather than adapted.',
+  });
+}
+
+/** True when the class decorator lists NG_VALUE_ACCESSOR among its providers. */
+function providesNgValueAccessor(node: ts.ClassDeclaration): boolean {
+  let found = false;
+  const visit = (child: ts.Node): void => {
+    if (found) return;
+    if (ts.isIdentifier(child) && child.text === 'NG_VALUE_ACCESSOR') {
+      found = true;
+      return;
+    }
+    ts.forEachChild(child, visit);
+  };
+  for (const modifier of node.modifiers ?? []) {
+    if (ts.isDecorator(modifier)) visit(modifier);
+  }
+  return found;
 }
 
 /**
@@ -689,15 +783,80 @@ function collectFromPropertyAccess(node: ts.PropertyAccessExpression, out: Findi
   }
 
   if (property === 'valueChanges' || property === 'statusChanges') {
-    out.push({
-      construct: property,
-      node,
-      classification: 'judgment',
-      reason:
-        `${property} is an RxJS stream. Signal Forms exposes state as signals, so the ` +
-        'surrounding pipeline must be redesigned (computed/effect) rather than translated.',
-    });
+    collectFromFormStream(node, property, out);
   }
+}
+
+/** Which tier a form stream's operator chain falls into. */
+type StreamTier = 'trivial' | 'moderate' | 'hard';
+
+/**
+ * Walks the `.pipe(...)` chain hanging off a form stream and grades it.
+ *
+ * The hardest operator present decides the tier: a chain that ends in switchMap is a
+ * switchMap problem no matter how many maps precede it.
+ */
+function collectFromFormStream(
+  node: ts.PropertyAccessExpression,
+  property: 'valueChanges' | 'statusChanges',
+  out: FindingDraft[],
+): void {
+  const operators = pipedOperators(node);
+  const hard = operators.filter((name) => HARD_OPERATORS.has(name));
+  const moderate = operators.filter((name) => MODERATE_OPERATORS.has(name));
+
+  const tier: StreamTier = hard.length > 0 ? 'hard' : moderate.length > 0 ? 'moderate' : 'trivial';
+  const listed = [...new Set(tier === 'hard' ? hard : moderate)].join(', ');
+
+  // Distinct constructs so each tier can carry its own recipe, and so the complexity
+  // breakdown separates "a subscribe" from "a switchMap pipeline".
+  const construct =
+    tier === 'trivial'
+      ? property
+      : tier === 'moderate'
+        ? `${property}Pipeline`
+        : `${property}AsyncPipeline`;
+
+  const reason =
+    tier === 'trivial'
+      ? `${property} with no operator chain — the trivial tier. The stream becomes the ` +
+        "field's own value signal; a bare subscribe becomes a computed() for derived state, " +
+        'or an effect() when the body genuinely performs a side effect.'
+      : tier === 'moderate'
+        ? `${property} piped through ${listed} — the moderate tier. These are value ` +
+          'transforms with signal equivalents (computed(), and the debounce() schema rule), ' +
+          'but the rewrite is a redesign rather than an operator-for-operator swap.'
+        : `${property} piped through ${listed} — the hard tier. These operators coordinate ` +
+          'other async sources and have NO direct signal equivalent. Either keep the ' +
+          'Observable via toObservable()/toSignal(), or restructure around resource().';
+
+  out.push({ construct, node, classification: 'judgment', reason });
+}
+
+/**
+ * Operator names inside `.pipe(...)` applied to `node`.
+ *
+ * Only looks at the pipe attached directly to this stream, so it cannot stray into
+ * unrelated RxJS elsewhere in the file.
+ */
+function pipedOperators(node: ts.PropertyAccessExpression): string[] {
+  const parent: ts.Node | undefined = node.parent;
+  if (parent === undefined || !ts.isPropertyAccessExpression(parent)) return [];
+  if (declaredName(parent.name) !== 'pipe') return [];
+
+  const call: ts.Node | undefined = parent.parent;
+  if (call === undefined || !ts.isCallExpression(call)) return [];
+
+  const names: string[] = [];
+  for (const argument of call.arguments) {
+    // Operators are call expressions: debounceTime(300), map(fn), distinctUntilChanged().
+    if (ts.isCallExpression(argument) && ts.isIdentifier(argument.expression)) {
+      names.push(argument.expression.text);
+    } else if (ts.isIdentifier(argument)) {
+      names.push(argument.text);
+    }
+  }
+  return names;
 }
 
 function collectFromTypeReference(node: ts.TypeReferenceNode, out: FindingDraft[]): void {

@@ -72,8 +72,14 @@ export const DETECTED_CONSTRUCTS = [
   'FormArray.setControl',
   'asyncValidator',
 
+  // M3 — deep judgment
+  'ControlValueAccessor',
   'valueChanges',
   'statusChanges',
+  'valueChangesPipeline',
+  'statusChangesPipeline',
+  'valueChangesAsyncPipeline',
+  'statusChangesAsyncPipeline',
 ] as const;
 
 export type Construct = (typeof DETECTED_CONSTRUCTS)[number];

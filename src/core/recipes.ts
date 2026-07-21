@@ -65,6 +65,7 @@ export const DOCS = {
   dynamicJson: 'https://angular.dev/guide/forms/signals/dynamic-forms-with-json',
   customControls: 'https://angular.dev/guide/forms/signals/custom-controls',
   migration: 'https://angular.dev/guide/forms/signals/migration',
+  rxjsInterop: 'https://angular.dev/ecosystem/rxjs-interop',
 } as const;
 
 /** Pages that establish the core model/form()/schema shape every recipe rests on. */
@@ -829,6 +830,267 @@ export class Registration {
     },
   ],
   [
+    'ControlValueAccessor',
+    {
+      construct: 'ControlValueAccessor',
+      description:
+        'ControlValueAccessor is replaced by the FormValueControl interface (or ' +
+        'FormCheckboxControl for on/off controls). The four-method callback protocol ' +
+        'collapses into a `value` model signal, with optional inputs for the state the ' +
+        'control wants to render.',
+      before: `import { Component, forwardRef } from '@angular/core';
+import { ControlValueAccessor, NG_VALUE_ACCESSOR } from '@angular/forms';
+
+@Component({
+  selector: 'app-rating',
+  template: '<div (click)="rate(1)">{{ value }}</div>',
+  providers: [
+    { provide: NG_VALUE_ACCESSOR, useExisting: forwardRef(() => RatingInput), multi: true },
+  ],
+})
+export class RatingInput implements ControlValueAccessor {
+  value = 0;
+  disabled = false;
+  private onChange: (value: number) => void = () => {};
+  private onTouched: () => void = () => {};
+
+  writeValue(value: number): void { this.value = value; }
+  registerOnChange(fn: (value: number) => void): void { this.onChange = fn; }
+  registerOnTouched(fn: () => void): void { this.onTouched = fn; }
+  setDisabledState(isDisabled: boolean): void { this.disabled = isDisabled; }
+
+  rate(value: number): void {
+    this.value = value;
+    this.onChange(value);
+    this.onTouched();
+  }
+}`,
+      after: `import { Component, input, model, output } from '@angular/core';
+import type { FormValueControl, ValidationError } from '@angular/forms/signals';
+
+@Component({
+  selector: 'app-rating',
+  template: \`
+    <div (click)="rate(1)" (blur)="touch.emit()">{{ value() }}</div>
+    @if (invalid()) {
+      @for (error of errors(); track error) {
+        <span>{{ error.message }}</span>
+      }
+    }
+  \`,
+})
+export class RatingInput implements FormValueControl<number> {
+  // The ONLY required member: a model signal called \`value\`.
+  value = model<number>(0);
+
+  // Optional — declare just the state this control actually renders.
+  disabled = input<boolean>(false);
+  readonly = input<boolean>(false);
+  invalid = input<boolean>(false);
+  errors = input<readonly ValidationError[]>([]);
+  touched = input<boolean>(false);
+  touch = output<void>();
+
+  rate(value: number): void {
+    // Writing to the model signal is what registerOnChange used to do.
+    this.value.set(value);
+  }
+}
+
+// Usage is unchanged in shape:
+//   <app-rating [formField]="f.rating" />`,
+      caveats: [
+        STABILITY,
+        'NEVER implement both ControlValueAccessor and FormValueControl on the same ' +
+          'component — the docs call this out explicitly. Pick one.',
+        'Use `FormCheckboxControl` instead for boolean on/off controls: its required member ' +
+          'is a `checked` model signal rather than `value`.',
+        'Migration can be incremental in this direction: a FormValueControl component works ' +
+          'as-is with Reactive and Template-Driven forms, so you can convert the control ' +
+          'first and leave its consumers on FormGroup until later.',
+        'Drop `NG_VALUE_ACCESSOR`, the `forwardRef`, and all four callback methods. There is ' +
+          'no provider to register — the interface is structural.',
+        'Optional state inputs a control may declare: touched, dirty, errors, valid, invalid, ' +
+          'pending, disabled, disabledReasons, readonly, hidden, required, min, max, ' +
+          'minLength, maxLength, pattern, name. Declare only the ones you render.',
+        'Report blur with a `touch` output rather than the old registerOnTouched callback.',
+      ],
+      sources: [DOCS.customControls, DOCS.migration],
+    },
+  ],
+  [
+    'valueChanges',
+    {
+      construct: 'valueChanges',
+      description:
+        'TRIVIAL TIER — a form stream with no operator chain. The stream itself disappears: ' +
+        'a field’s value is already a signal, so derived state becomes computed() and only ' +
+        'genuine side effects become effect().',
+      before: `this.form.valueChanges.subscribe((value) => {
+  this.total = value.quantity * value.price;
+});
+
+this.form.controls.email.valueChanges.subscribe((email) => {
+  this.analytics.track('email_changed', email);
+});`,
+      after: `import { computed, effect, signal } from '@angular/core';
+import { form } from '@angular/forms/signals';
+
+readonly model = signal({ quantity: 1, price: 0, email: '' });
+readonly f = form(this.model);
+
+// Derived state -> computed(). No subscription, no teardown.
+readonly total = computed(() => this.f.quantity().value() * this.f.price().value());
+
+// A genuine side effect -> effect().
+constructor() {
+  effect(() => {
+    this.analytics.track('email_changed', this.f.email().value());
+  });
+}`,
+      caveats: [
+        STABILITY,
+        'Reach for computed() FIRST. If the subscribe body only assigned to a component ' +
+          'field, that field was derived state and should be a computed() — using effect() ' +
+          'to write state back into signals is an anti-pattern Angular explicitly warns about.',
+        'Timing differs. Signals are glitch-free and notify only after the value settles, so ' +
+          'three rapid writes produce ONE notification where subscribe() would have fired ' +
+          'three times. Code that counted emissions will behave differently.',
+        'No teardown needed: computed() and effect() are tied to the injection context, so ' +
+          'takeUntil / unsubscribe / OnDestroy plumbing can be deleted.',
+        'valueChanges did not emit the initial value; a computed() always has a current ' +
+          'value. Any `startWith(...)` compensating for that is now redundant.',
+      ],
+      sources: [DOCS.essentials, DOCS.fieldState, DOCS.rxjsInterop],
+    },
+  ],
+  [
+    'valueChangesPipeline',
+    {
+      construct: 'valueChangesPipeline',
+      description:
+        'MODERATE TIER — a form stream piped through value transforms (map, filter, ' +
+        'debounceTime, distinctUntilChanged, startWith, tap). Each has a signal-world ' +
+        'equivalent, but the result is a redesign, not an operator-for-operator swap.',
+      before: `import { debounceTime, distinctUntilChanged, map } from 'rxjs/operators';
+
+this.form.valueChanges
+  .pipe(
+    debounceTime(300),
+    map((value) => value.query.trim()),
+    distinctUntilChanged(),
+  )
+  .subscribe((query) => this.runSearch(query));`,
+      after: `import { computed, effect, signal } from '@angular/core';
+import { debounce, form } from '@angular/forms/signals';
+
+readonly model = signal({ query: '' });
+
+readonly f = form(this.model, (path) => {
+  // debounceTime -> the debounce() SCHEMA RULE. It holds UI changes back from the
+  // model, so every downstream rule and computed sees the settled value.
+  debounce(path.query, 300);
+});
+
+// map -> computed()
+readonly query = computed(() => this.f.query().value().trim());
+
+// distinctUntilChanged -> implicit: a computed only notifies when its value
+// actually changes under the signal equality function.
+constructor() {
+  effect(() => this.runSearch(this.query()));
+}`,
+      caveats: [
+        STABILITY,
+        'Operator-by-operator mapping: `map` -> computed(); `filter` -> a computed that ' +
+          'returns the previous or empty value, or a guard inside the effect; `debounceTime` -> ' +
+          'the debounce() schema rule; `distinctUntilChanged` -> implicit in signal equality; ' +
+          '`startWith` -> the model’s initial value; `tap` -> effect().',
+        'debounce() is a SCHEMA RULE, not an operator — it delays the commit to the model, so ' +
+          'it throttles validation and every derived signal at once. If you only want to ' +
+          'throttle one async check, use the validator’s own `debounce` option instead.',
+        'debounce() also accepts the literal string "blur" to defer the commit until the ' +
+          'field is touched, and touching a field flushes any pending debounce immediately.',
+        '`filter` has no clean equivalent — signals always have a current value, so there is ' +
+          'no way to "not emit". Move the condition into the consumer.',
+        'Timing differs: signals are glitch-free and coalesce rapid changes into one ' +
+          'notification, so emission counts will not match the observable version.',
+      ],
+      sources: [DOCS.asyncOperations, DOCS.formLogic, DOCS.rxjsInterop, DOCS.essentials],
+    },
+  ],
+  [
+    'valueChangesAsyncPipeline',
+    {
+      construct: 'valueChangesAsyncPipeline',
+      description:
+        'HARD TIER — a form stream piped through switchMap / mergeMap / concatMap / ' +
+        'combineLatest / withLatestFrom / forkJoin. These coordinate OTHER async sources and ' +
+        'have no direct signal equivalent. There is no mechanical rewrite; pick a strategy.',
+      before: `import { debounceTime, switchMap } from 'rxjs/operators';
+
+this.results$ = this.form.valueChanges.pipe(
+  debounceTime(300),
+  switchMap((value) => this.http.get<Result[]>('/search?q=' + value.query)),
+);`,
+      after: `// THREE STRATEGIES — choose deliberately; none is a drop-in replacement.
+
+// (A) The pipeline IS validation -> use the async validation rules. Cancellation,
+//     pending state and error reporting are handled for you.
+import { form, validateHttp } from '@angular/forms/signals';
+
+readonly f = form(this.model, (path) => {
+  validateHttp(path.username, {
+    debounce: 300,
+    request: ({ value }) => (value() ? \`/api/check?u=\${value()}\` : undefined),
+    onSuccess: (r) => (r.available ? null : { kind: 'taken', message: 'Already taken' }),
+    onError: () => ({ kind: 'serverError', message: 'Could not verify' }),
+  });
+});
+
+// (B) The pipeline FETCHES DATA -> use a resource. rxResource keeps your existing
+//     Observable-returning service.
+import { rxResource } from '@angular/core/rxjs-interop';
+
+readonly results = rxResource({
+  params: () => this.f.query().value(),
+  stream: ({ params }) => this.api.search(params),
+});
+// results.value() / results.isLoading() / results.error()
+
+// (C) Genuinely need the operators -> keep RxJS at the edge. Bridge the signal out,
+//     pipe as before, and bridge the result back in.
+import { toObservable, toSignal } from '@angular/core/rxjs-interop';
+import { debounceTime, switchMap } from 'rxjs/operators';
+
+private readonly query$ = toObservable(computed(() => this.f.query().value()));
+readonly results = toSignal(
+  this.query$.pipe(
+    debounceTime(300),
+    switchMap((q) => this.http.get<Result[]>('/search?q=' + q)),
+  ),
+  { initialValue: [] as Result[] },
+);`,
+      caveats: [
+        STABILITY,
+        'DO NOT expect a mechanical rewrite. switchMap-style cancellation, ordering and ' +
+          'multi-stream joins are exactly what signals do not model; anything claiming a ' +
+          'one-liner equivalent is wrong.',
+        'Pick by intent: (A) if the result decides validity, (B) if it fetches data to ' +
+          'display, (C) if the operator semantics themselves are load-bearing.',
+        'Strategy (C) is a legitimate destination, not a failure. toObservable/toSignal exist ' +
+          'precisely so RxJS can stay where it is genuinely better.',
+        'toObservable only emits after the signal STABILISES — set(1);set(2);set(3) emits just ' +
+          '3. A pipeline that relied on seeing every intermediate value will not.',
+        'toSignal subscribes immediately and needs an `initialValue` (or `requireSync`), ' +
+          'because a signal must always have a value. It also unsubscribes automatically.',
+        'combineLatest over several form fields is usually just a computed() reading each ' +
+          'field — check that before reaching for interop.',
+      ],
+      sources: [DOCS.rxjsInterop, DOCS.asyncOperations, DOCS.validation],
+    },
+  ],
+  [
     'AbstractControl.get',
     {
       construct: 'AbstractControl.get',
@@ -983,6 +1245,19 @@ const ALIASES: ReadonlyMap<string, string> = new Map([
   ['formarray.insert', 'FormArray'],
   ['formarray.clear', 'FormArray'],
   ['formarray.setcontrol', 'FormArray'],
+  ['controlvalueaccessor', 'ControlValueAccessor'],
+  ['cva', 'ControlValueAccessor'],
+  ['ng_value_accessor', 'ControlValueAccessor'],
+  ['formvaluecontrol', 'ControlValueAccessor'],
+  ['formcheckboxcontrol', 'ControlValueAccessor'],
+  ['valuechanges', 'valueChanges'],
+  ['statuschanges', 'valueChanges'],
+  ['valuechangespipeline', 'valueChangesPipeline'],
+  ['statuschangespipeline', 'valueChangesPipeline'],
+  ['valuechangesasyncpipeline', 'valueChangesAsyncPipeline'],
+  ['statuschangesasyncpipeline', 'valueChangesAsyncPipeline'],
+  ['tosignal', 'valueChangesAsyncPipeline'],
+  ['toobservable', 'valueChangesAsyncPipeline'],
   ['asyncvalidatorfn', 'asyncValidator'],
   ['asyncvalidators', 'asyncValidator'],
   ['validatehttp', 'asyncValidator'],

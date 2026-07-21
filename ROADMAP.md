@@ -17,15 +17,26 @@ custom `ValidatorFn`, `AbstractControl.get`, control types in type position,
 option). Recipes: `FormArray`, `dynamicControls`, `asyncValidator`. New tool
 `analyze_migration_complexity`.
 
+**M3** — deep judgment. Detects `ControlValueAccessor` (via `implements` **or** the
+`NG_VALUE_ACCESSOR` provider, reported once per class) and grades form streams by the RxJS
+operators in their `.pipe()` chain:
+
+| Tier | Operators | Construct | Answer |
+| --- | --- | --- | --- |
+| trivial | none / bare `subscribe` | `valueChanges` | `computed()`, or `effect()` for real side effects |
+| moderate | `map`, `filter`, `debounceTime`, `distinctUntilChanged`, `startWith`, `tap`, … | `valueChangesPipeline` | `computed()` + the `debounce()` schema rule |
+| hard | `switchMap`, `mergeMap`, `combineLatest`, `withLatestFrom`, `forkJoin`, … | `valueChangesAsyncPipeline` | **no direct equivalent** — pick between async validation rules, `rxResource`, or keeping RxJS behind `toObservable`/`toSignal` |
+
+The hardest operator present decides the tier. Recipes: `ControlValueAccessor`,
+`valueChanges`, `valueChangesPipeline`, `valueChangesAsyncPipeline`.
+
 ### Still deferred
 
 | Item | Target | Note |
 | --- | --- | --- |
-| `ControlValueAccessor` detection + guidance | M3 | v22 replaces it with `FormValueControl` / `FormCheckboxControl`. |
-| RxJS interop recipes for `valueChanges` pipelines | M3 | `valueChanges` is *detected* and classified `judgment`, but has no recipe yet. |
-| Operator-aware tiering of form stream pipelines | M3 | Classify by the operators in `.pipe()` — bare `subscribe` vs `map`/`debounceTime` vs `switchMap`/`combineLatest`. |
 | `get_migration_report` tool | M4 | |
-| Classifying arbitrary RxJS outside form streams | post-M4 | Explicitly out of scope: operator analysis is gated to observables bound to a form. A general RxJS-to-signals tool is a different product. |
+| Classifying arbitrary RxJS outside form streams | post-M4 | Explicitly out of scope. Operator analysis is rooted at `.valueChanges` / `.statusChanges`, so it cannot stray into unrelated observables. A general RxJS-to-signals tool is a different product. |
+| Reading the project's installed Angular version | post-M4 | Would let version-sensitive recipes pick the right variant instead of handing the agent both. |
 
 ### Version sensitivity
 
