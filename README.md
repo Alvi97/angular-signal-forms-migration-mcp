@@ -141,12 +141,36 @@ editor spawns, not a library your project depends on — installing it adds a de
 your production dependencies. Use `npx` (above), which keeps it in a cache outside your
 project entirely.
 
-Pin `@latest` as shown so `npx` re-resolves on each launch; without it, npx will keep
-serving whichever version it cached first. To check what is actually running:
+## Upgrading
+
+**If you installed with `@latest` (as shown above), there is nothing to do.** `npx`
+re-resolves the version on every launch, so restarting your editor picks up new releases.
+
+The server also checks for updates once a day and writes a one-line notice to stderr when
+a newer version exists — so you find out without having to look. It is throttled, has a
+2-second timeout, never touches stdout, and stays silent on any failure. Turn it off with:
+
+```json
+{
+  "mcpServers": {
+    "signal-forms-migration": {
+      "command": "npx",
+      "args": ["-y", "angular-signal-forms-migration-mcp@latest"],
+      "env": { "SIGNAL_FORMS_MCP_NO_UPDATE_CHECK": "1" }
+    }
+  }
+}
+```
+
+To see what is actually running:
 
 ```bash
 npx angular-signal-forms-migration-mcp --version
 ```
+
+If you installed **without** `@latest`, npx keeps serving whichever version it cached
+first. Repoint the config at `@latest`, or clear the cache with `npm cache clean --force`
+and restart.
 
 ## Tools
 

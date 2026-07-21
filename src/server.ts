@@ -35,6 +35,7 @@ import {
   type GetSignalFormsRecipeOutput,
 } from './core/types.js';
 import { nodeFileSystem, toAbsolute } from './infra/node-fs.js';
+import { checkForUpdate } from './infra/update-notifier.js';
 
 /**
  * Identity announced in the MCP handshake, read from package.json rather than hardcoded.
@@ -250,6 +251,13 @@ async function main(): Promise<void> {
   const server = createServer();
   await server.connect(new StdioServerTransport());
   logToStderr(`v${SERVER_VERSION} ready on stdio`);
+
+  // Deliberately not awaited: the server is already serving, and a slow or unreachable
+  // registry must never delay or fail a session. Every failure path inside resolves
+  // quietly, and it is throttled to once a day.
+  void checkForUpdate(SERVER_NAME, SERVER_VERSION, (message) => {
+    logToStderr(message);
+  });
 }
 
 main().catch((cause: unknown) => {
