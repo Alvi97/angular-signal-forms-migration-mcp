@@ -35,6 +35,26 @@ references into a markdown string: totals, suggested order, construct table, eve
 judgment call with its line and reason, and a version-sensitivity warning that fires only
 for constructs actually present. Returns the string; the server never writes files.
 
+**M5** — form state access. Detects state read straight off a form (`.value`, `.invalid`,
+`.valid`, `.errors`, `.touched`, `.dirty`, `.pristine`, `.pending`, `.controls`, `.status`)
+and the write APIs (`.setValue`, `.patchValue`, `.reset`, `.getRawValue`, `.hasError`, and
+the `markAs*` / `setErrors` / `enable` / `setValidators` family). Recipes: `formStateRead`,
+`formStateWrite`.
+
+Found by running M4 against a real repo: `forgot-password.component.ts` was reported as
+"7 findings, all mechanical" while two further lines (`form.invalid`, `form.value`) also
+had to change. On mockio-master this added **39 findings (+33%)**, so the earlier totals
+materially understated the work.
+
+Two access modes are split rather than lumped, mirroring the `.get()` treatment:
+
+| Usage | Class | Why |
+| --- | --- | --- |
+| `form.controls.email`, `form.controls['email']` | mechanical | becomes `f.email` |
+| `Object.keys(form.controls)` | judgment | the field tree is a typed object, not a string-keyed map |
+| `.setValue` / `.patchValue` / `.reset` / `.getRawValue` | mechanical | value writes go through the model signal |
+| `markAs*` / `setErrors` / `enable` / `setValidators` | judgment | state is derived from rules; no imperative equivalent |
+
 ### Still deferred
 
 | Item | Target | Note |

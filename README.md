@@ -208,9 +208,9 @@ core functions to the protocol.
 
 ## Status
 
-Feature-complete through M4: all four tools ship, with 23 doc-verified recipes covering
+Feature-complete through M5: all four tools ship, with 25 doc-verified recipes covering
 basic constructs, arrays, runtime shape mutation, async validators, custom controls and
-the three RxJS stream tiers.
+the three RxJS stream tiers, and reading/writing form state.
 
 See [ROADMAP.md](./ROADMAP.md) for what is deliberately **not** covered — chiefly
 template (`.html`) scanning, template-driven forms, and a `ts.Program`-backed deep mode.

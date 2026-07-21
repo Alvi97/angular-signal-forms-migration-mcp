@@ -830,6 +830,169 @@ export class Registration {
     },
   ],
   [
+    'formStateRead',
+    {
+      construct: 'formStateRead',
+      description:
+        'Reading state off a form object (`form.invalid`, `form.value`, `form.controls`) ' +
+        'becomes a signal call on the field tree: call the field, then call the signal — ' +
+        '`f().invalid()`. The whole-form value is simply the model signal.',
+      before: `import { FormGroup } from '@angular/forms';
+
+readonly form: FormGroup;
+
+onSubmit(): void {
+  if (this.form.invalid) return;
+  this.api.save(this.form.value);
+}
+
+get emailErrors() {
+  return this.form.controls['email'].errors;
+}
+
+readonly showWarning = this.form.dirty && this.form.touched;`,
+      after: `import { computed, signal } from '@angular/core';
+import { form, submit } from '@angular/forms/signals';
+
+readonly model = signal({ email: '', name: '' });
+readonly f = form(this.model);
+
+onSubmit(): void {
+  // form.invalid  -> f().invalid()
+  if (this.f().invalid()) return;
+  // form.value    -> the model signal itself
+  this.api.save(this.model());
+}
+
+// form.controls['email'].errors -> dot notation, then the signal
+readonly emailErrors = computed(() => this.f.email().errors());
+
+// Reads compose inside computed() and update automatically.
+readonly showWarning = computed(() => this.f().dirty() && this.f().touched());`,
+      caveats: [
+        STABILITY,
+        'Two calls, not one: the field is a function AND its state members are signals, so ' +
+          '`form.invalid` becomes `f().invalid()` — a common slip is writing `f.invalid()`.',
+        'The root form is itself a field, so `f().valid()` is whole-form validity and ' +
+          '`f.email().valid()` is one field.',
+        'For the whole value prefer the model signal (`this.model()`) over `f().value()` — ' +
+          'it is the source of truth and is already typed.',
+        'Use `invalid()` rather than `!valid()`. While async validation is pending BOTH are ' +
+          'false, so `!valid()` reports a pending field as broken.',
+        '`form.controls[x]` becomes real property access on the field tree (`f.email`), and ' +
+          'array items are reached by index (`f.items[0].name`).',
+        'Hidden, disabled and readonly fields do not contribute to parent validity, so a ' +
+          'whole-form `valid()` can be true while such a field would fail its rules.',
+        '`status` (the string union VALID / INVALID / PENDING / DISABLED) has no documented ' +
+          'counterpart — Signal Forms exposes separate boolean signals. Rewrite comparisons ' +
+          'against the string as valid() / invalid() / pending() checks.',
+      ],
+      sources: [DOCS.essentials, DOCS.fieldState, DOCS.models],
+    },
+  ],
+  [
+    'formStateWrite',
+    {
+      construct: 'formStateWrite',
+      description:
+        'Writing to a form splits in two. Value writes (setValue / patchValue) go through the ' +
+        'model signal, and reset() exists on field state. The markAs* / setErrors / enable / ' +
+        'setValidators family has NO counterpart — that state is derived from schema rules.',
+      before: `import { FormGroup, Validators } from '@angular/forms';
+
+readonly form: FormGroup;
+
+load(user: User): void {
+  this.form.patchValue({ name: user.name });
+  this.form.get('email')!.setValue(user.email);
+}
+
+submit(): void {
+  if (this.form.invalid) {
+    this.form.markAllAsTouched();   // reveal the errors
+    return;
+  }
+  this.form.reset();
+}
+
+lock(): void {
+  this.form.disable();
+  this.form.get('code')!.setValidators([Validators.required]);
+  this.form.get('code')!.updateValueAndValidity();
+}`,
+      after: `import { signal } from '@angular/core';
+import { applyWhen, disabled, form, required, submit } from '@angular/forms/signals';
+
+private readonly INITIAL = { name: '', email: '', code: '' };
+readonly model = signal({ ...this.INITIAL });
+readonly isLocked = signal(false);
+
+readonly f = form(
+  this.model,
+  (path) => {
+    // disable() -> a rule. The state is derived, never assigned.
+    disabled(path.code, { when: () => this.isLocked() });
+
+    // setValidators() -> applyWhen(). Validators are declared, not attached.
+    applyWhen(
+      path,
+      () => this.isLocked(),
+      (p) => {
+        required(p.code);
+      },
+    );
+  },
+  {
+    submission: {
+      action: async (f) => {
+        await this.api.save(this.model());
+        // reset() lives on field state and clears touched/dirty too.
+        f().reset({ ...this.INITIAL });
+      },
+    },
+  },
+);
+
+load(user: User): void {
+  // patchValue -> a partial model update.
+  this.model.update((current) => ({ ...current, name: user.name }));
+  // setValue on one control -> write through that field.
+  this.f.email().value.set(user.email);
+}
+
+// markAllAsTouched() disappears: submit() marks every field touched for you,
+// which is the only reason that call usually existed.
+onSubmit(): void {
+  submit(this.f);
+}`,
+      caveats: [
+        STABILITY,
+        'MECHANICAL: setValue / patchValue / reset / getRawValue. patchValue becomes a partial ' +
+          '`model.update(...)`; a single-field setValue becomes `f.field().value.set(v)`; ' +
+          'getRawValue becomes `this.model()`.',
+        'Always produce a NEW object in model.update(...). Mutating the existing one will not ' +
+          'notify the signal.',
+        'NO COUNTERPART: markAsTouched / markAllAsTouched / markAsDirty / markAsPristine / ' +
+          'setErrors / markAsPending / updateValueAndValidity / enable / disable / ' +
+          'setValidators / addValidators / removeValidators. All of that state is derived.',
+        '`markAllAsTouched()` before showing errors is usually redundant: submitting via ' +
+          'submit() (or the FormRoot directive) marks every field touched itself.',
+        '`updateValueAndValidity()` has nothing to replace it — validation reruns ' +
+          'automatically whenever a value a rule reads changes.',
+        'enable()/disable() become the `disabled()` rule; setValidators()/addValidators() ' +
+          'become `applyWhen()`. The migration docs note that on the SignalFormControl compat ' +
+          'class these imperative calls actively THROW, which is a good signal of intent.',
+        'setErrors() is not supported: errors come from validation rules. An error that used ' +
+          'to be pushed in from outside (a server response, say) belongs in a validateHttp() ' +
+          'or validateAsync() rule instead.',
+        'VERSION-SENSITIVE rule signature: v22 takes `disabled(path, { when: cb })` where v21 ' +
+          'took a bare callback `disabled(path, cb)`. Check your Angular version.',
+      ],
+      sources: [DOCS.essentials, DOCS.fieldState, DOCS.formLogic, DOCS.migration],
+      versionSensitive: true,
+    },
+  ],
+  [
     'ControlValueAccessor',
     {
       construct: 'ControlValueAccessor',
@@ -1245,6 +1408,43 @@ const ALIASES: ReadonlyMap<string, string> = new Map([
   ['formarray.insert', 'FormArray'],
   ['formarray.clear', 'FormArray'],
   ['formarray.setcontrol', 'FormArray'],
+  // Reading state off a form -> signal calls on the field tree.
+  ['abstractcontrol.value', 'formStateRead'],
+  ['abstractcontrol.valid', 'formStateRead'],
+  ['abstractcontrol.invalid', 'formStateRead'],
+  ['abstractcontrol.errors', 'formStateRead'],
+  ['abstractcontrol.touched', 'formStateRead'],
+  ['abstractcontrol.dirty', 'formStateRead'],
+  ['abstractcontrol.pristine', 'formStateRead'],
+  ['abstractcontrol.pending', 'formStateRead'],
+  ['abstractcontrol.controls', 'formStateRead'],
+  ['abstractcontrol.status', 'formStateRead'],
+  ['formstateread', 'formStateRead'],
+  // Writing to a form -> the model signal, or a schema rule.
+  ['abstractcontrol.setvalue', 'formStateWrite'],
+  ['abstractcontrol.patchvalue', 'formStateWrite'],
+  ['abstractcontrol.reset', 'formStateWrite'],
+  ['abstractcontrol.getrawvalue', 'formStateWrite'],
+  ['abstractcontrol.haserror', 'formStateWrite'],
+  ['abstractcontrol.markastouched', 'formStateWrite'],
+  ['abstractcontrol.markallastouched', 'formStateWrite'],
+  ['abstractcontrol.markasuntouched', 'formStateWrite'],
+  ['abstractcontrol.markasdirty', 'formStateWrite'],
+  ['abstractcontrol.markaspristine', 'formStateWrite'],
+  ['abstractcontrol.markaspending', 'formStateWrite'],
+  ['abstractcontrol.seterrors', 'formStateWrite'],
+  ['abstractcontrol.updatevalueandvalidity', 'formStateWrite'],
+  ['abstractcontrol.enable', 'formStateWrite'],
+  ['abstractcontrol.disable', 'formStateWrite'],
+  ['abstractcontrol.setvalidators', 'formStateWrite'],
+  ['abstractcontrol.addvalidators', 'formStateWrite'],
+  ['abstractcontrol.removevalidators', 'formStateWrite'],
+  ['abstractcontrol.clearvalidators', 'formStateWrite'],
+  ['abstractcontrol.setasyncvalidators', 'formStateWrite'],
+  ['formstatewrite', 'formStateWrite'],
+  ['patchvalue', 'formStateWrite'],
+  ['setvalue', 'formStateWrite'],
+  ['markalltastouched', 'formStateWrite'],
   ['controlvalueaccessor', 'ControlValueAccessor'],
   ['cva', 'ControlValueAccessor'],
   ['ng_value_accessor', 'ControlValueAccessor'],

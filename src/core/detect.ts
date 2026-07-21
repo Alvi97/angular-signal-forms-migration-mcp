@@ -157,6 +157,57 @@ const HARD_OPERATORS: ReadonlySet<string> = new Set([
   'reduce',
 ]);
 
+/**
+ * AbstractControl state read directly off a form. Each has a signal counterpart on the
+ * field state — `form.invalid` becomes `f().invalid()` — so these are mechanical, but they
+ * are still edit sites and were previously invisible.
+ */
+const STATE_READS: ReadonlySet<string> = new Set([
+  'value',
+  'valid',
+  'invalid',
+  'errors',
+  'touched',
+  'dirty',
+  'pristine',
+  'pending',
+  'controls',
+]);
+
+/**
+ * Write APIs whose intent survives the migration, even though the call changes shape:
+ * value writes go through the model signal, and reset() exists on field state.
+ */
+const CONTROL_WRITES_MECHANICAL: ReadonlySet<string> = new Set([
+  'setValue',
+  'patchValue',
+  'reset',
+  'getRawValue',
+  'hasError',
+]);
+
+/**
+ * Imperative APIs with NO Signal Forms counterpart. State is derived from rules, so these
+ * become schema rules (disabled/applyWhen), submission, or nothing at all.
+ */
+const CONTROL_WRITES_JUDGMENT: ReadonlySet<string> = new Set([
+  'markAsTouched',
+  'markAllAsTouched',
+  'markAsUntouched',
+  'markAsDirty',
+  'markAsPristine',
+  'markAsPending',
+  'setErrors',
+  'updateValueAndValidity',
+  'enable',
+  'disable',
+  'setValidators',
+  'addValidators',
+  'removeValidators',
+  'clearValidators',
+  'setAsyncValidators',
+]);
+
 const ARRAY_MUTATORS: ReadonlySet<string> = new Set([
   'push',
   'removeAt',
@@ -387,6 +438,7 @@ function collectFromNode(node: ts.Node, names: BoundNames, out: FindingDraft[]):
     collectFromFormBuilderCall(node, names.formBuilders, out);
     collectFromControlGet(node, names.forms, out);
     collectFromShapeMutation(node, names.forms, out);
+    collectFromControlApi(node, names.forms, out);
     return;
   }
   if (ts.isPropertyAssignment(node)) {
@@ -395,6 +447,7 @@ function collectFromNode(node: ts.Node, names: BoundNames, out: FindingDraft[]):
   }
   if (ts.isPropertyAccessExpression(node)) {
     collectFromPropertyAccess(node, out);
+    collectFromStateRead(node, names.forms, out);
     return;
   }
   if (ts.isTypeReferenceNode(node)) {
@@ -489,6 +542,118 @@ function collectFromControlGet(
       ? 'A literal .get("key") becomes dot notation on the field tree (form.key).'
       : 'The key is computed, so there is no single field to rewrite to; the surrounding ' +
         'code must be redesigned around the typed field tree.',
+  });
+}
+
+/**
+ * `form.invalid`, `form.value`, `form.controls` — state read straight off the form object.
+ *
+ * Each maps to a signal call on the field state (`f().invalid()`), so these are mechanical.
+ * They were previously invisible, which understated the edit count: mockio-master's
+ * "simplest, all-mechanical" file turned out to have two of them.
+ *
+ * `.status` is the exception — it was a string union ('VALID' | 'INVALID' | …) and Signal
+ * Forms has no equivalent, so it is judgment.
+ */
+function collectFromStateRead(
+  node: ts.PropertyAccessExpression,
+  formNames: ReadonlySet<string>,
+  out: FindingDraft[],
+): void {
+  const member = declaredName(node.name);
+  if (member === undefined) return;
+
+  // `form.reset()` is a call, reported by collectFromControlApi. Without this guard the
+  // callee would also be counted here as a read of a `reset` property.
+  if (isCallee(node)) return;
+
+  const isStatus = member === 'status';
+  if (!isStatus && !STATE_READS.has(member)) return;
+  if (!isKnownReceiver(node.expression, formNames)) return;
+
+  if (isStatus) {
+    out.push({
+      construct: 'AbstractControl.status',
+      node,
+      classification: 'judgment',
+      reason:
+        'status was a string union (VALID / INVALID / PENDING / DISABLED). Signal Forms ' +
+        'exposes separate boolean signals instead, so comparisons against the string have ' +
+        'to be rewritten as valid() / invalid() / pending() checks.',
+    });
+    return;
+  }
+
+  // `.controls` splits: naming one control is a rename, enumerating the map is not.
+  // The field tree is a typed object, so there is no string-keyed map to iterate.
+  const enumerated = member === 'controls' && !isNamedControlAccess(node);
+
+  out.push({
+    construct: `AbstractControl.${member}`,
+    node,
+    classification: enumerated ? 'judgment' : 'mechanical',
+    reason: enumerated
+      ? 'The whole controls map is being enumerated (Object.keys/entries, a loop, or passed ' +
+        'along). The field tree is a typed object rather than a string-keyed map, so there ' +
+        'is nothing to enumerate — the surrounding loop must be restructured.'
+      : `${member} is read off the form object. On the field tree the same state is a ` +
+        `signal reached by calling the field first: form.${member} becomes f().${member}(), ` +
+        'and the whole-form value is the model signal itself.',
+  });
+}
+
+/** True for `form.controls.email` and `form.controls['email']` — one named control. */
+function isNamedControlAccess(node: ts.PropertyAccessExpression): boolean {
+  const parent: ts.Node | undefined = node.parent;
+  if (parent === undefined) return false;
+  if (ts.isPropertyAccessExpression(parent) && parent.expression === node) return true;
+  return (
+    ts.isElementAccessExpression(parent) &&
+    parent.expression === node &&
+    ts.isStringLiteralLike(parent.argumentExpression)
+  );
+}
+
+/** True when this property access is the callee of a call, i.e. `x.foo()` rather than `x.foo`. */
+function isCallee(node: ts.PropertyAccessExpression): boolean {
+  const parent: ts.Node | undefined = node.parent;
+  return parent !== undefined && ts.isCallExpression(parent) && parent.expression === node;
+}
+
+/**
+ * `form.patchValue(...)`, `form.markAllAsTouched()`, `form.reset()` and friends.
+ *
+ * Split by whether the intent survives: value writes and reset() have a Signal Forms home,
+ * while the markAs / setErrors / enable family does not — state there is derived from
+ * rules, so the call has to be replaced by a rule or by submission behaviour.
+ */
+function collectFromControlApi(
+  node: ts.CallExpression,
+  formNames: ReadonlySet<string>,
+  out: FindingDraft[],
+): void {
+  const callee = node.expression;
+  if (!ts.isPropertyAccessExpression(callee)) return;
+
+  const method = declaredName(callee.name);
+  if (method === undefined) return;
+
+  const mechanical = CONTROL_WRITES_MECHANICAL.has(method);
+  const judgment = CONTROL_WRITES_JUDGMENT.has(method);
+  if (!mechanical && !judgment) return;
+  if (!isKnownReceiver(callee.expression, formNames)) return;
+
+  out.push({
+    construct: `AbstractControl.${method}`,
+    node,
+    classification: mechanical ? 'mechanical' : 'judgment',
+    reason: mechanical
+      ? `${method}() writes through the form object. In Signal Forms the model signal is the ` +
+        'source of truth, so value writes go to the model (or to a field via ' +
+        'value.set()); reset() exists on field state and also clears touched/dirty.'
+      : `${method}() has no Signal Forms counterpart. Interaction and validity state are ` +
+        'DERIVED from schema rules and submission, not set imperatively, so this call is ' +
+        'replaced by a rule (disabled/applyWhen), by submit(), or removed entirely.',
   });
 }
 
