@@ -52,8 +52,6 @@ export interface UpgradePlan {
   /** The options above with zero applicable steps, for a plain "this does not matter" note. */
   readonly irrelevantOptions: string[];
   readonly guideUrl: string;
-  /** Non-fatal problems — chiefly a requested range the vendored data cannot cover. */
-  readonly warnings: string[];
   readonly coverage: DataCoverage;
   readonly provenance: UpgradeStepData['provenance'];
 }
@@ -101,6 +99,26 @@ export function validateUpgradeRange(fromMajor: number, toMajor: number): string
       'Angular publishes upgrade guidance only in the forward direction.'
     );
   }
+
+  // Beyond the data is beyond Angular: the vendored file tracks released versions, so a
+  // target above it does not exist yet. Producing a partial plan that looked complete was
+  // the worse answer. The message names the staleness possibility so a real new release
+  // is a data refresh rather than a dead end.
+  const { minMajor, maxMajor } = dataCoverage();
+  if (toMajor > maxMajor) {
+    return (
+      `Angular v${String(toMajor)} is not a known release — the newest this data covers is ` +
+      `v${String(maxMajor)} (vendored ${data.provenance.retrievedISO}). If v${String(toMajor)} ` +
+      'has since shipped, refresh with `npm run data:update-steps`.'
+    );
+  }
+  if (fromMajor < minMajor) {
+    return (
+      `Angular v${String(fromMajor)} predates the published update guidance, which starts ` +
+      `at v${String(minMajor)}.`
+    );
+  }
+
   return undefined;
 }
 
@@ -166,26 +184,6 @@ export function buildUpgradePlan(
   const majorSteps: number[] = [];
   for (let major = fromMajor + 1; major <= toMajor; major++) majorSteps.push(major);
 
-  // Honesty about the edges: outside the vendored range the plan is incomplete, and an
-  // incomplete plan that looks complete is worse than no plan.
-  const coverage = dataCoverage();
-  const warnings: string[] = [];
-  if (toMajor > coverage.maxMajor) {
-    warnings.push(
-      `This data only covers up to Angular v${String(coverage.maxMajor)}, but you asked to ` +
-        `reach v${String(toMajor)}. Steps for v${String(coverage.maxMajor + 1)}+ are NOT ` +
-        'included — refresh the data (npm run data:update-steps) or use the official guide ' +
-        'for the remainder.',
-    );
-  }
-  if (fromMajor < coverage.minMajor) {
-    warnings.push(
-      `This data starts at Angular v${String(coverage.minMajor)}, but you are on ` +
-        `v${String(fromMajor)}. Steps required before v${String(coverage.minMajor)} are not ` +
-        'included.',
-    );
-  }
-
   // Count steps in range that carry each flag at all, regardless of what was selected.
   const relevance = { ngUpgrade: 0, material: 0, windows: 0 };
   for (const step of data.steps) {
@@ -208,8 +206,7 @@ export function buildUpgradePlan(
     optionRelevance: relevance,
     irrelevantOptions: FILTERED_OPTIONS.filter((option) => relevance[option] === 0),
     guideUrl: updateGuideUrl(fromMajor, toMajor, options.level),
-    warnings,
-    coverage,
+    coverage: dataCoverage(),
     provenance: data.provenance,
   };
 }

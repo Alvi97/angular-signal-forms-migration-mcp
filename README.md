@@ -260,9 +260,12 @@ It handles **any forward range the data covers — v2 to v22** — not just the 
 prerequisite. `{ "fromMajor": 14, "toMajor": 17 }` works, and both default sensibly:
 `fromMajor` to the detected version, `toMajor` to the version the recipes target.
 
-Outside that range it says so rather than guessing. Asking to reach v25 returns the v22
-plan with **"⚠️ This plan is incomplete"** naming what is missing; a downgrade or a no-op
-range is rejected outright, because an empty plan reads as "nothing to do".
+Outside that range it refuses rather than guesses. A target above the newest known
+release, a downgrade, and a no-op range are all rejected with a message saying which —
+because an empty or partial plan reads as "nothing to do", which is the worst possible
+answer. The refusal for a too-new target names the vendored date and points at
+`data:update-steps`, so a genuinely new Angular release is a refresh rather than a dead
+end.
 
 Refresh the vendored data with `npm run data:update-steps` — the covered range widens
 automatically, since it is computed from the data rather than hardcoded.

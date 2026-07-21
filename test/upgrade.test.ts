@@ -179,20 +179,23 @@ describe('version ranges outside the vendored data', () => {
     }
   });
 
-  it('warns rather than pretends when the target exceeds the data', () => {
-    // 19 -> 25 used to return the 19 -> 22 steps and claim majorSteps up to 25.
-    const plan = buildUpgradePlan(19, 25, ADVANCED);
-    expect(plan.warnings.join(' ')).toMatch(/only covers|beyond|up to v22/i);
-    expect(plan.warnings.join(' ')).toContain('22');
+  it('refuses a target beyond the newest known Angular', () => {
+    // v25 does not exist. Producing the v22 plan with an "incomplete" note was still the
+    // wrong answer — it is not a partial plan, it is a nonsense target.
+    const message = validateUpgradeRange(19, 25);
+    expect(message).toBeDefined();
+    expect(message).toContain('25');
+    expect(message).toContain(String(dataCoverage().maxMajor));
+    // But it must not be a dead end if Angular really has shipped it since.
+    expect(message).toMatch(/data:update-steps/);
   });
 
-  it('warns when the starting version predates the data', () => {
-    const plan = buildUpgradePlan(1, 22, ADVANCED);
-    expect(plan.warnings.length).toBeGreaterThan(0);
+  it('refuses a start below the published guidance', () => {
+    expect(validateUpgradeRange(1, 22)).toMatch(/predates|starts at/i);
   });
 
-  it('says nothing alarming for a range fully inside the data', () => {
-    expect(buildUpgradePlan(19, 22, ADVANCED).warnings).toEqual([]);
+  it('accepts the newest known version as a target', () => {
+    expect(validateUpgradeRange(19, dataCoverage().maxMajor)).toBeUndefined();
   });
 });
 
