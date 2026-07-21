@@ -30,7 +30,11 @@ const MIXED: readonly FileFindings[] = [
   file('/repo/src/app/order.component.ts', [
     ['FormArray', 'judgment'],
     ['FormArray.push', 'judgment'],
-    ['Validators.required', 'mechanical'],
+    // Resolves to formStateWrite, which IS version-sensitive: v21 took
+    // `disabled(path, cb)`, v22 takes `disabled(path, { when: cb })`. This slot used to
+    // hold Validators.required, flagged version-sensitive on a difference that turned out
+    // not to exist — see the requiredTrue tests in recipes.test.ts.
+    ['AbstractControl.patchValue', 'mechanical'],
   ]),
   file('/repo/src/app/validators.ts', [['customValidator', 'judgment']]),
 ];

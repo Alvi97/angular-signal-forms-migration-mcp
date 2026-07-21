@@ -78,8 +78,11 @@ describe('docs:audit', () => {
   it('flags the recipes known to differ across Angular versions', () => {
     const report = auditRecipes();
     const flagged = report.versionSensitive.map((entry) => entry.construct);
-    // requiredTrue is the canonical case: required() rejects `false` on v22, accepts on v21.
-    expect(flagged).toContain('Validators.requiredTrue');
+    // The canonical case is the disabled() signature: v21 took a bare callback,
+    // v22 takes { when: cb }. requiredTrue used to be flagged here on the strength of a
+    // version difference that does not exist — see the requiredTrue tests in recipes.test.ts.
+    expect(flagged).toContain('formStateWrite');
+    expect(flagged).not.toContain('Validators.requiredTrue');
   });
 
   it('renders a report naming the target version and every construct', () => {

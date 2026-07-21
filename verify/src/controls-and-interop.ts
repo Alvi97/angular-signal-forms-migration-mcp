@@ -2,7 +2,7 @@
  * Compile fixture for the recipes with a distinct API surface: custom controls
  * (ControlValueAccessor -> FormValueControl), async validation, and RxJS interop.
  */
-import { Component, computed, input, model, output, signal } from '@angular/core';
+import { Component, computed, input, model, output, signal, type OutputRef } from '@angular/core';
 import { toObservable, toSignal } from '@angular/core/rxjs-interop';
 import { debounceTime, map, switchMap } from 'rxjs/operators';
 import { of } from 'rxjs';
@@ -11,6 +11,7 @@ import {
   form,
   required,
   validateHttp,
+  type FormUiControl,
   type FormValueControl,
   type ValidationError,
 } from '@angular/forms/signals';
@@ -75,3 +76,29 @@ export class RegistrationFixture {
     { initialValue: [] as string[] },
   );
 }
+
+/* -------------------------------------------------------------------------- */
+/* Custom control member names — where the guide and the API page disagree     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The custom-controls guide says "the `touched` property uniquely supports `input()`, or
+ * `OutputRef` depending on your needs", and its property table lists `valid`.
+ *
+ * The type declarations say otherwise on both counts, and they are what compiles. `touched`
+ * is an input only; the OutputRef is a SEPARATE member called `touch`. There is no `valid`
+ * member at all — validity is read through `invalid`, `pending` and `errors`.
+ *
+ * Encoded as type-level assertions rather than prose because a recipe that repeats the
+ * guide here produces a component that silently never reports being touched.
+ */
+type DeclaredOn<K extends string> = K extends keyof FormUiControl<string> ? true : false;
+
+export const TOUCHED_IS_DECLARED: DeclaredOn<'touched'> = true;
+export const TOUCH_IS_DECLARED: DeclaredOn<'touch'> = true;
+// @ts-expect-error FormUiControl declares no `valid` member, though the guide's table lists one.
+export const VALID_IS_DECLARED: DeclaredOn<'valid'> = true;
+
+/** `touched` will not accept an OutputRef — that is what `touch` is for. */
+// @ts-expect-error the OutputRef member is `touch`, not `touched`.
+export const TOUCHED_TAKES_AN_OUTPUT: FormUiControl<string>['touched'] = {} as OutputRef<void>;

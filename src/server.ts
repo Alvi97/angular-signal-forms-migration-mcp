@@ -116,18 +116,17 @@ get_angular_upgrade_plan gives the upgrade that must come first.
 Rules that matter:
 
 - CHECK THE PREREQUISITE FIRST. A BLOCKING PREREQUISITE in the report, or a non-null
-  blockingPrerequisite from analyze_migration_complexity, means the project's Angular is
-  too old for @angular/forms/signals and NO recipe will compile. Do not migrate; use
-  get_angular_upgrade_plan.
+  blockingPrerequisite from analyze_migration_complexity, means the Angular version is
+  too old for @angular/forms/signals and NO recipe compiles — use
+  get_angular_upgrade_plan instead.
 
 - A FINDING IS A SHAPE MATCH, NOT A PROVEN DEFECT. This parses text and cannot see
   runtime behaviour. Before calling anyone's code broken, prove it with a failing test;
   if it passes on unmodified code, there was nothing to fix — say so and move on.
 
 - NEVER treat a "judgment" finding as mechanical. Judgment means the shape changes and a
-  human decides the design. Ask, or present options — do not pick one silently. Some
-  constructs have NO equivalent (addControl/removeControl, switchMap pipelines,
-  enumerating form.controls); inventing an API is the worst outcome available.
+  human decides the design. Ask, or present options — do not pick one silently.
+  Inventing an API to close the gap is the worst outcome available.
 
 - READ THE CAVEATS before using any "after" snippet. VERSION-SENSITIVE means behaviour
   differs across Angular versions and a fallback is given; UNVERIFIED means the docs did
@@ -135,18 +134,20 @@ Rules that matter:
 
 - TEMPLATES ARE NOT SCANNED — .ts only, so totals are the Reactive Forms slice and
   ngModel forms produce nothing. Each migrated component still needs its .html done:
-  [formGroup]/formControlName -> [formField], and errors?.['x'] -> getError('kind').
-  Two keys are RENAMED (minlength/maxlength -> minLength/maxLength) and a stale key
-  fails SILENTLY, so take the kind from the recipe rather than reusing the old one.
+  formControlName -> [formField], and [formGroup] on the <form> -> [formRoot] (a
+  DIFFERENT directive; [formField] binds a control). errors?.['x'] -> getError('kind'),
+  with minlength/maxlength -> minLength/maxLength; a stale key fails SILENTLY, so take
+  the kind from the recipe.
 
 - Migrate in the suggested order. A file owning no form only references one defined
-  elsewhere and cannot move alone; shared validator files gate every consumer, so settle
-  their error shape early.
+  elsewhere and cannot move alone; shared validators gate every consumer, so settle
+  their error shape early. A form too big to convert at once can go incrementally —
+  ask for the FormControl recipe's INCREMENTAL caveat.
 
 - DO NOT INVENT API NAMES, in prose as well as in code. Signal Forms is too new to
-  recall reliably, and one wrong name recurs: there is NO "Control" export —
-  that is pre-release naming. It is FormField / [formField] and FormRoot / [formRoot]. If
-  you are about to name an API no recipe gave you, say you are unsure instead.`;
+  recall reliably, and one wrong name recurs: there is NO "Control" export — that is
+  pre-release naming. If you are about to name an API no recipe gave you, say you are
+  unsure instead.`;
 
 export function createServer(): McpServer {
   const server = new McpServer(

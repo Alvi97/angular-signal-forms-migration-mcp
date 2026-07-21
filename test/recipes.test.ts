@@ -182,12 +182,22 @@ describe('recipe content invariants', () => {
   });
 });
 
+/**
+ * This recipe used to carry two invented facts, and they survived three reviews because
+ * every review compared DOCUMENTATION across versions:
+ *
+ *   1. "on v21 required() PASSES for `false`" — it does not. `isEmpty` is byte-identical in
+ *      @angular/forms 21.0.0 and 22.0.7, both testing `value === false`. v21's docs merely
+ *      omitted the sentence. A doc gap was read as a behaviour.
+ *   2. "Reactive Forms reported `{ requiredTrue: ... }`" — it never did. Validators.requiredTrue
+ *      has always reported `{ required: true }`, so there is no key rename here at all. That
+ *      one was pattern-matched off the genuine minlength -> minLength rename.
+ *
+ * Both were stated with more confidence than anything actually documented. These tests now
+ * pin the opposite.
+ */
 describe('Validators.requiredTrue', () => {
-  // v22 docs: required() "treats false as missing (invalid), matching
-  // <input type=checkbox required>". v21 did not — so the recipe is version-sensitive
-  // and must say so, or an agent will apply it to a v21 project and silently accept
-  // an unchecked box.
-  it('uses required() — correct for v22', () => {
+  it('uses required()', () => {
     const result = getSignalFormsRecipe('Validators.requiredTrue');
     expect(result.found).toBe(true);
     if (!result.found) return;
@@ -195,14 +205,24 @@ describe('Validators.requiredTrue', () => {
     expect(result.after).toMatch(/\brequired\(path\./);
   });
 
-  it('warns that the recipe is version-sensitive and names the v21 behaviour', () => {
+  it('does NOT claim a version difference that does not exist', () => {
     const result = getSignalFormsRecipe('Validators.requiredTrue');
     if (!result.found) return;
 
-    expect(result.caveats.some((c) => c.includes('VERSION-SENSITIVE'))).toBe(true);
-    expect(result.caveats.some((c) => c.includes('v21'))).toBe(true);
-    // It must still hand the agent the version-independent fallback.
-    expect(result.caveats.some((c) => c.includes('validate('))).toBe(true);
+    const caveats = result.caveats.join('\n');
+    expect(caveats).toMatch(/NOT version-sensitive/i);
+    expect(caveats).toMatch(/byte-identical/);
+    // The old text told v21 users the substitution would silently accept an unchecked box.
+    expect(caveats).not.toMatch(/on v21 required\(\) PASSES/);
+  });
+
+  it('does NOT claim the error key was renamed', () => {
+    const result = getSignalFormsRecipe('Validators.requiredTrue');
+    if (!result.found) return;
+
+    const caveats = result.caveats.join('\n');
+    expect(caveats).toMatch(/THE ERROR KEY DOES NOT CHANGE/);
+    expect(caveats).not.toMatch(/RENAMED/);
   });
 });
 

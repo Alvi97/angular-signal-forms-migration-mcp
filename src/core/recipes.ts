@@ -67,6 +67,7 @@ export const DOCS = {
   migration: 'https://angular.dev/guide/forms/signals/migration',
   formSubmission: 'https://angular.dev/guide/forms/signals/form-submission',
   fieldStateApi: 'https://angular.dev/api/forms/signals/FieldState',
+  validatorsApi: 'https://angular.dev/api/forms/Validators',
   templateExpressions: 'https://angular.dev/guide/templates/expression-syntax',
   rxjsInterop: 'https://angular.dev/ecosystem/rxjs-interop',
   schemas: 'https://angular.dev/guide/forms/signals/schemas',
@@ -88,14 +89,32 @@ type RecipeDraft = Omit<Recipe, 'provenance'> & {
   readonly versionSensitive?: boolean;
 };
 
+/**
+ * Pages a SHARED caveat quotes from. A recipe that carries the caveat must cite the page,
+ * or its provenance points somewhere the sentence does not appear.
+ *
+ * Three independent audits caught the same defect: the STABILITY quote is verbatim correct
+ * and lives on the overview page, which almost no recipe listed. Attaching sources by hand
+ * per recipe made that inevitable, so the boilerplate now carries its own citation.
+ */
+const SHARED_CAVEAT_SOURCES: readonly (readonly [string, string])[] = [
+  ['STABILITY:', DOCS.overview],
+  ['INCREMENTAL IS SUPPORTED', DOCS.migration],
+];
+
 function withProvenance(draft: RecipeDraft): Recipe {
   const { sources, versionSensitive, ...recipe } = draft;
+  const cited = new Set(sources ?? CORE_SOURCES);
+  for (const [marker, url] of SHARED_CAVEAT_SOURCES) {
+    if (recipe.caveats.some((caveat) => caveat.includes(marker))) cited.add(url);
+  }
+
   return {
     ...recipe,
     provenance: {
       verifiedAgainstVersion: VERIFIED_ANGULAR_VERSION,
       retrievedISO: RETRIEVED_ISO,
-      sources: [...(sources ?? CORE_SOURCES)],
+      sources: [...cited],
       versionSensitive: versionSensitive ?? false,
     },
   };
@@ -107,9 +126,11 @@ function withProvenance(draft: RecipeDraft): Recipe {
  */
 const STABILITY =
   'STABILITY: verified against Angular v22 docs. v22 no longer labels Signal Forms ' +
-  'experimental (v21 did), but angular.dev still advises that "if you need production ' +
-  'stability guarantees, reactive forms remain a solid choice". Behaviour also changed ' +
-  'between v21 and v22 — check your actual Angular version before applying this.';
+  'experimental (v21 carried "Signal Forms are experimental. The API may change in future ' +
+  'releases."), but the overview still advises that "if you need production stability ' +
+  'guarantees, reactive forms remain a solid choice". Some SIGNATURES changed between v21 ' +
+  'and v22 — `disabled(path, cb)` became `disabled(path, { when: cb })` — so check your ' +
+  'actual Angular version. Recipes flagged VERSION-SENSITIVE name the specific difference.';
 
 /**
  * The string a built-in rule puts in `error.kind`.
@@ -166,8 +187,11 @@ function nativeAttribute(attribute: string): string {
     `UNVERIFIED — observed in a real v22 AOT build, not on angular.dev: a literal ` +
     `\`${attribute}="..."\` left on the same element fails the build with NG8022, "Setting ` +
     `the '${attribute}' attribute is not allowed on nodes using the '[formField]' directive". ` +
-    'There is no angular.dev/errors/NG8022 page to cite. Delete the hand-written attribute — ' +
-    'the rule emits it, so nothing is lost.'
+    'There is no angular.dev/errors/NG8022 page to cite; the message was read out of ' +
+    '@angular/compiler-cli 22.0.7 (FORM_FIELD_UNSUPPORTED_BINDING = 8022). Delete the ' +
+    'hand-written attribute — the rule emits it, so nothing is lost. VERSION-SENSITIVE ' +
+    "wording: v21's compiler names the directive '[field]' in the same message, because the " +
+    'directive was renamed to [formField] in v22.'
   );
 }
 
@@ -176,8 +200,30 @@ function nativeAttribute(attribute: string): string {
  * apply recipes one at a time and will otherwise miss it.
  */
 const MODEL_FIRST =
-  'Signal Forms has no standalone control objects. State lives in one model signal; ' +
-  'form() derives a field tree from it. Migrate a whole form at once, not control by control.';
+  'MODEL-FIRST: state lives in one model signal and form() derives a field tree from it, so ' +
+  'a plain `form()` migration converts a whole form at once rather than one control at a ' +
+  'time. That is a property of `form()`, NOT a limit of Signal Forms — see INCREMENTAL below ' +
+  'before committing to a big-bang rewrite.';
+
+/**
+ * The correction to a claim this file repeated in seven recipes.
+ *
+ * It used to say "Signal Forms has no standalone control objects... migrate a whole form at
+ * once, not control by control." Angular documents the exact opposite as a named strategy,
+ * and ships stable v22 API for it. Telling an agent to convert a 47-field form in one commit
+ * when a field-at-a-time path exists is expensive advice to follow.
+ *
+ * Both directions compile in verify/src/incremental-migration.ts.
+ */
+const INCREMENTAL =
+  'INCREMENTAL IS SUPPORTED, and is usually the safer plan for a large form. Bottom-up: ' +
+  '`new SignalFormControl(value, schemaFn)` from `@angular/forms/signals/compat` IS a ' +
+  'standalone signal-forms control, and it slots straight into an existing FormGroup — the ' +
+  'migration guide describes this as migrating "leaf nodes of a form to Signals while ' +
+  'keeping the parent FormGroup structure", with values synchronised bi-directionally. ' +
+  'Top-down: `compatForm(model, schema)` reads a model whose LEAVES are reactive controls ' +
+  'as a field tree (`f.city().value()` yields the value, not the FormControl). Reach for ' +
+  'these when a form is too big, or too load-bearing, to convert in one change.';
 
 const IMPORT_FORMFIELD =
   "Add `FormField` to the component's `imports` array — `[formField]` is a directive, " +
@@ -227,6 +273,7 @@ export class Profile {
       caveats: [
         STABILITY,
         MODEL_FIRST,
+        INCREMENTAL,
         IMPORT_FORMFIELD,
         'Template binding changes from `[formControl]="email"` to `[formField]="f.email"`.',
         'Read the value with `f.email().value()` and write it with `f.email().value.set(v)`; ' +
@@ -282,6 +329,7 @@ export class Checkout {
       caveats: [
         STABILITY,
         MODEL_FIRST,
+        INCREMENTAL,
         IMPORT_FORMFIELD,
         'Bind nested fields directly: `[formField]="f.address.street"`. There is no ' +
           '`formGroupName` / `formControlName` indirection.',
@@ -322,6 +370,7 @@ export class Signup {
       caveats: [
         STABILITY,
         MODEL_FIRST,
+        INCREMENTAL,
         'INFERRED, not documented: delete the injection only after every `fb.group()` / ' +
           '`fb.control()` / `fb.array()` call in the class is migrated, or it will not ' +
           'compile. FormBuilder is not mentioned anywhere in the v22 Signal Forms guides — ' +
@@ -369,6 +418,7 @@ export class Signup {
       caveats: [
         STABILITY,
         MODEL_FIRST,
+        INCREMENTAL,
         IMPORT_FORMFIELD,
         'The `[value, validators]` array form splits in two: the value goes into the model ' +
           'signal, the validators become rules in the schema function.',
@@ -411,6 +461,7 @@ export class Search {
       caveats: [
         STABILITY,
         MODEL_FIRST,
+        INCREMENTAL,
         IMPORT_FORMFIELD,
         'A control that existed on its own now needs a model object to live in. Prefer folding ' +
           'it into the surrounding form’s model over creating a one-property model.',
@@ -437,10 +488,11 @@ readonly f = form(this.model, (path) => {
         STABILITY,
         errorKind('required', 'RequiredValidationError'),
         nativeAttribute('required'),
-        'VERSION-SENSITIVE emptiness rules. On v22, `null` and the empty string are missing ' +
-          '(invalid), and `false` is ALSO missing, matching `<input type="checkbox" required>`. ' +
-          'On v21 `false` PASSED. If the field can hold a boolean and you are on v21, express ' +
-          'the check with `validate()` instead — see the Validators.requiredTrue recipe.',
+        'EMPTINESS: `null`, `undefined` and the empty string are missing (invalid), and ' +
+          '`false` is ALSO missing, matching `<input type="checkbox" required>`. NaN counts ' +
+          'as missing for number fields. This is NOT version-sensitive: `isEmpty` is ' +
+          'byte-identical in @angular/forms 21.0.0 and 22.0.7 (both test `value === false`). ' +
+          'Only the docs differ — v21 simply omitted the sentence about `false`.',
         'required() PASSES for an empty array. Use `minLength(path.items, 1)` to require at ' +
           'least one element.',
         'For a conditionally required field use the `when` option instead of swapping validators: ' +
@@ -449,7 +501,6 @@ readonly f = form(this.model, (path) => {
           'and your template must map kinds to text itself.',
       ],
       sources: [DOCS.validation, DOCS.formLogic],
-      versionSensitive: true,
     },
   ],
   [
@@ -457,10 +508,10 @@ readonly f = form(this.model, (path) => {
     {
       construct: 'Validators.requiredTrue',
       description:
-        'On Angular v22, Validators.requiredTrue becomes plain required(). The v22 docs state ' +
-        'that required() "treats false as missing (invalid), matching <input type=checkbox ' +
-        'required>", which is exactly requiredTrue’s semantics. On v21 this was NOT true — see ' +
-        'the caveats.',
+        'Validators.requiredTrue becomes plain required(). The v22 docs state that required() ' +
+        '"treats false as missing (invalid), matching <input type=checkbox required>", which ' +
+        'is exactly requiredTrue’s semantics — and the same is true on v21, whose docs merely ' +
+        'did not say so.',
       before: `import { FormControl, Validators } from '@angular/forms';
 
 readonly acceptedTerms = new FormControl(false, [Validators.requiredTrue]);`,
@@ -469,27 +520,26 @@ readonly acceptedTerms = new FormControl(false, [Validators.requiredTrue]);`,
 readonly model = signal({ acceptedTerms: false });
 
 readonly f = form(this.model, (path) => {
-  // v22: required() reports \`false\` as missing, so this covers requiredTrue.
+  // required() reports \`false\` as missing, so this covers requiredTrue.
   required(path.acceptedTerms, { message: 'You must accept the terms' });
 });`,
       caveats: [
         STABILITY,
-        // It becomes required(), so it reports required() — not a 'requiredTrue' kind.
-        errorKind('required', 'RequiredValidationError', 'requiredTrue'),
-        'VERSION-SENSITIVE. This recipe is correct for v22. The v21 docs defined "empty" as ' +
-          'null or the empty string only, so on v21 required() PASSES for `false` and this ' +
-          'substitution would silently accept an unchecked box. Confirm the project is on v22+ ' +
-          'before applying it.',
-        'If you are on v21, or want to stay version-independent, express the check explicitly ' +
-          'instead: `validate(path.acceptedTerms, ({ value }) => value() ? null : ' +
-          "{ kind: 'requiredTrue', message: '...' })`.",
+        // Reactive requiredTrue already reported `{ required: true }`, so this is NOT a rename.
+        errorKind('required', 'RequiredValidationError'),
+        'THE ERROR KEY DOES NOT CHANGE. Reactive `Validators.requiredTrue` already reported ' +
+          '`{ required: true }` — its API page says the error map "contains the required ' +
+          'property set to true" — and Signal Forms reports `kind: "required"`. So a template ' +
+          "matching 'required' keeps working. There was never a 'requiredTrue' error key.",
+        'NOT version-sensitive, despite appearances. `isEmpty` is byte-identical in ' +
+          '@angular/forms 21.0.0 and 22.0.7 and both test `value === false`, so this ' +
+          'substitution is safe on v21 too. Only the v22 DOCS added the sentence saying so; ' +
+          'the v21 doc gap was a documentation omission, not different behaviour.',
         'The v22 validation page is internally inconsistent here: its "empty" table still lists ' +
           'only null and the empty string, while the prose note below it says `false` is ' +
-          'missing. This recipe follows the prose note, which is the more specific statement. ' +
-          'Worth confirming against the behaviour of your installed @angular/forms.',
+          'missing. This recipe follows the prose note, which the shipped source confirms.',
       ],
-      sources: [DOCS.validation],
-      versionSensitive: true,
+      sources: [DOCS.validation, DOCS.validatorsApi],
     },
   ],
   [
@@ -836,6 +886,7 @@ removeRule(groupIndex: number, ruleIndex: number): void {
       caveats: [
         STABILITY,
         MODEL_FIRST,
+        INCREMENTAL,
         'Mutation moves from the form to the model. `push()` / `removeAt()` become ' +
           '`model.update(...)` producing a NEW array — do not mutate the existing one in place, ' +
           'or the signal will not notify.',
@@ -1093,9 +1144,11 @@ export class Registration {
           'pending states will read as failures.',
         'Cancellation is automatic — a value change aborts the in-flight request. Delete any ' +
           'switchMap/takeUntil plumbing that existed to do this by hand.',
-        'Prefer validateHttp() for REST checks. Reach for validateAsync() only for non-HTTP ' +
-          'sources (WebSocket, IndexedDB) or custom caching/retry; it exposes the resource ' +
-          'primitive directly and costs more code.',
+        'Prefer validateHttp() for REST checks — the docs call it "the most common form of ' +
+          'async validation", and describe validateAsync() as "a lower-level API that ' +
+          'exposes Angular\'s resource primitive directly". Reach for validateAsync() when ' +
+          'the source is not a plain HTTP request. (Which non-HTTP sources is INFERRED — the ' +
+          'docs name no examples, so do not repeat any as though they were listed.)',
         'An Observable-returning service still works: use rxResource() from ' +
           "'@angular/core/rxjs-interop' as the validateAsync() factory. Subscriptions are " +
           'cleaned up for you.',
@@ -1298,7 +1351,7 @@ onSubmit(): void {
         'Do NOT extend that to setErrors()/markAsPending(). The same guide files those under ' +
           '"not supported" and never says they throw, so predicting a throw for them would be ' +
           'inventing behaviour. Errors are derived from rules; see the formSubmission recipe.',
-        'setErrors() has a direct documented replacement, and it is NOT an async validator: ' +
+        'setErrors() has a direct replacement, and it is NOT an async validator: ' +
           'return the error from the submit() action and Angular routes it to the field. See ' +
           'the `formSubmission` recipe — this is the single most common reason setErrors() ' +
           'exists (a rejected sign-in, a duplicate email) and hand-rolling it is a mistake.',
@@ -1497,11 +1550,18 @@ export class RatingInput implements FormValueControl<number> {
           'published custom-control example has no `providers` array — but the docs do not ' +
           'state the removal, so confirm against your own build.',
         'Optional state PROPERTIES (the docs\' term, not "inputs") a control may declare: ' +
-          'touched, dirty, errors, valid, invalid, pending, disabled, disabledReasons, ' +
-          'readonly, hidden, required, min, max, minLength, maxLength, pattern, name. All are ' +
-          'optional — implement only what your control needs. `touched` is special: it accepts ' +
-          'model(), input() or an OutputRef.',
-        'Report blur with a `touch` output rather than the old registerOnTouched callback.',
+          'touched, dirty, errors, invalid, pending, disabled, disabledReasons, readonly, ' +
+          'hidden, required, min, max, minLength, maxLength, pattern, name. All optional — ' +
+          'implement only what your control needs.',
+        'TRUST THE TYPES OVER THE GUIDE ON TWO POINTS HERE, both checked against the ' +
+          'declarations in @angular/forms 22.0.7. (1) The guide says "the `touched` property ' +
+          'uniquely supports `input()`, or `OutputRef`". It does not: `touched` is an ' +
+          '`InputSignal<boolean>` only, and the OutputRef is a SEPARATE member named `touch`. ' +
+          "Declaring `touched = output<void>()` will not report blur. (2) The guide's " +
+          'property table lists `valid`, but `FormUiControl` has no `valid` member — read ' +
+          'validity through `invalid`, `pending` and `errors`. A `valid` input is simply ' +
+          'never bound.',
+        'Report blur with the `touch` output rather than the old registerOnTouched callback.',
       ],
       sources: [DOCS.customControls, DOCS.migration],
     },
@@ -1542,13 +1602,19 @@ constructor() {
         'Reach for computed() FIRST. If the subscribe body only assigned to a component ' +
           'field, that field was derived state and should be a computed() — using effect() ' +
           'to write state back into signals is an anti-pattern Angular explicitly warns about.',
-        'Timing differs. Signals are glitch-free and notify only after the value settles, so ' +
-          'three rapid writes produce ONE notification where subscribe() would have fired ' +
-          'three times. Code that counted emissions will behave differently.',
-        'No teardown needed: computed() and effect() are tied to the injection context, so ' +
-          'takeUntil / unsubscribe / OnDestroy plumbing can be deleted.',
-        'valueChanges did not emit the initial value; a computed() always has a current ' +
-          'value. Any `startWith(...)` compensating for that is now redundant.',
+        'Timing differs, so code that COUNTED emissions will behave differently. The only ' +
+          'documented form of this is about toObservable: "even if you update a signal\'s ' +
+          'value multiple times, toObservable will only emit the value after the signal ' +
+          'stabilizes". INFERRED, not documented: that the same coalescing applies to signal ' +
+          'reads generally. Do not rely on a specific notification count either way.',
+        'No teardown needed. computed() is lazy and holds no subscription, so there is ' +
+          'nothing to unsubscribe; a component effect() is destroyed with the component. ' +
+          'Either way the takeUntil / unsubscribe / OnDestroy plumbing goes. (toSignal() is ' +
+          'the one that needs an injection context — computed() does not.)',
+        'INFERRED, not documented: that valueChanges did not emit an initial value. The ' +
+          'AbstractControl API page says only that it "emits an event every time the value ' +
+          'of the control changes". A computed() always has a current value, so a ' +
+          '`startWith(...)` added to compensate is redundant — verify against your own code.',
       ],
       sources: [DOCS.essentials, DOCS.fieldState, DOCS.rxjsInterop],
     },
@@ -1603,8 +1669,10 @@ constructor() {
           'field is touched, and touching a field flushes any pending debounce immediately.',
         '`filter` has no clean equivalent — signals always have a current value, so there is ' +
           'no way to "not emit". Move the condition into the consumer.',
-        'Timing differs: signals are glitch-free and coalesce rapid changes into one ' +
-          'notification, so emission counts will not match the observable version.',
+        'Timing differs, so emission counts will not match the observable version. Angular ' +
+          'documents this coalescing for toObservable specifically ("will only emit the ' +
+          'value after the signal stabilizes"); extending it to signal reads generally is ' +
+          'INFERRED, not documented. Either way, do not port logic that counts emissions.',
       ],
       sources: [DOCS.asyncOperations, DOCS.formLogic, DOCS.rxjsInterop, DOCS.essentials],
     },
@@ -1720,6 +1788,7 @@ readonly f = form(this.model);
       caveats: [
         STABILITY,
         MODEL_FIRST,
+        INCREMENTAL,
         'The dotted string path `get("address.street")` becomes real property access: ' +
           '`f.address.street`. There is no string-path lookup on the field tree.',
         'The `as FormControl` cast that usually follows `.get()` is deleted — the field tree ' +
