@@ -358,7 +358,55 @@ function collectFormLikeNames(sourceFile: ts.SourceFile): ReadonlySet<string> {
   };
   ts.forEachChild(sourceFile, visit);
 
+  bindControlAliases(sourceFile, names);
   return names;
+}
+
+/**
+ * Binds the `get email() { return this.loginForm.get('email'); }` idiom.
+ *
+ * Angular templates cannot call `.get()`, so components expose one accessor per control and
+ * then use those accessors from TypeScript too. Every call through such an alias —
+ * `this.email?.setErrors(...)` — was invisible, because the alias is not itself typed as a
+ * form. Resolving them is a fixpoint: one alias may be defined in terms of another.
+ */
+function bindControlAliases(sourceFile: ts.SourceFile, names: Set<string>): void {
+  const candidates: { name: string; expression: ts.Expression }[] = [];
+
+  const visit = (node: ts.Node): void => {
+    if (ts.isGetAccessorDeclaration(node) || ts.isPropertyDeclaration(node)) {
+      const expression = aliasedExpression(node);
+      const name = declaredName(node.name);
+      if (expression !== undefined && name !== undefined && !names.has(name)) {
+        candidates.push({ name, expression });
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(sourceFile, visit);
+
+  // Bounded by the candidate count: each pass either binds one or stops.
+  for (let pass = 0; pass < candidates.length; pass++) {
+    let bound = false;
+    for (const candidate of candidates) {
+      if (names.has(candidate.name)) continue;
+      if (!isFormDerivedReceiver(candidate.expression, names)) continue;
+      names.add(candidate.name);
+      bound = true;
+    }
+    if (!bound) return;
+  }
+}
+
+/** The single expression a getter returns, or a read-only property's initializer. */
+function aliasedExpression(node: ts.Node): ts.Expression | undefined {
+  if (ts.isGetAccessorDeclaration(node)) {
+    const [statement] = node.body?.statements ?? [];
+    if (statement !== undefined && ts.isReturnStatement(statement)) return statement.expression;
+    return undefined;
+  }
+  if (ts.isPropertyDeclaration(node) && node.initializer !== undefined) return node.initializer;
+  return undefined;
 }
 
 function isControlType(type: ts.TypeNode | undefined): boolean {
@@ -535,7 +583,7 @@ function collectFromControlGet(
   const callee = node.expression;
   if (!ts.isPropertyAccessExpression(callee)) return;
   if (declaredName(callee.name) !== 'get') return;
-  if (!isKnownReceiver(callee.expression, formNames)) return;
+  if (!isFormDerivedReceiver(callee.expression, formNames)) return;
 
   const [key] = node.arguments;
   const literalKey = key !== undefined && ts.isStringLiteralLike(key);
@@ -575,7 +623,7 @@ function collectFromStateRead(
 
   const isStatus = member === 'status';
   if (!isStatus && !STATE_READS.has(member)) return;
-  if (!isKnownReceiver(node.expression, formNames)) return;
+  if (!isFormDerivedReceiver(node.expression, formNames)) return;
 
   if (isStatus) {
     out.push({
@@ -647,7 +695,7 @@ function collectFromControlApi(
   const mechanical = CONTROL_WRITES_MECHANICAL.has(method);
   const judgment = CONTROL_WRITES_JUDGMENT.has(method);
   if (!mechanical && !judgment) return;
-  if (!isKnownReceiver(callee.expression, formNames)) return;
+  if (!isFormDerivedReceiver(callee.expression, formNames)) return;
 
   out.push({
     construct: `AbstractControl.${method}`,
@@ -692,7 +740,7 @@ function collectFromShapeMutation(
   if (!isGroupMutator && !isArrayMutator) return;
 
   // Without this gate, any `push` in a forms file would be reported.
-  if (!isKnownReceiver(callee.expression, formNames)) return;
+  if (!isFormDerivedReceiver(callee.expression, formNames)) return;
 
   // `setControl` exists on both; attribute it to the array only when the receiver is not
   // group-shaped, which we cannot know without a TypeChecker — so prefer the group name.
@@ -995,6 +1043,62 @@ function isKnownReceiver(receiver: ts.Node, names: ReadonlySet<string>): boolean
     return name !== undefined && names.has(name);
   }
   return false;
+}
+
+/**
+ * True for the form object itself AND for any single control reached through it.
+ *
+ * Reactive Forms code rarely calls the interesting methods on the form — it calls them on a
+ * control fished out of the form, and `?.` is idiomatic because `.get()` returns
+ * `AbstractControl | null`. Matching only the bare form name made every one of those calls
+ * invisible:
+ *
+ *     this.loginForm.get('password')?.setErrors({ invalidCredentials: true });
+ *
+ * That was reported as a single mechanical `AbstractControl.get`, so a file whose hardest
+ * edit is a no-counterpart `setErrors()` was ranked "all mechanical, safe transliteration".
+ * Under-reporting difficulty is worse than missing a finding: it sends an agent in
+ * expecting a rename.
+ */
+function isFormDerivedReceiver(receiver: ts.Node, formNames: ReadonlySet<string>): boolean {
+  const node = unwrapReceiver(receiver);
+  if (isKnownReceiver(node, formNames)) return true;
+
+  // form.get('email') / items.at(0) — one control out of a form-derived expression.
+  if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+    const method = declaredName(node.expression.name);
+    if (method === 'get' || method === 'at') {
+      return isFormDerivedReceiver(node.expression.expression, formNames);
+    }
+    return false;
+  }
+
+  // form.controls.email
+  if (ts.isPropertyAccessExpression(node)) {
+    return isControlsAccess(node.expression, formNames);
+  }
+  // form.controls['email']
+  if (ts.isElementAccessExpression(node)) {
+    return isControlsAccess(node.expression, formNames);
+  }
+  return false;
+}
+
+/** True when `node` is `<formDerived>.controls`. */
+function isControlsAccess(node: ts.Node, formNames: ReadonlySet<string>): boolean {
+  const inner = unwrapReceiver(node);
+  if (!ts.isPropertyAccessExpression(inner)) return false;
+  if (declaredName(inner.name) !== 'controls') return false;
+  return isFormDerivedReceiver(inner.expression, formNames);
+}
+
+/** Strips the syntax that decorates a receiver without changing what it refers to. */
+function unwrapReceiver(node: ts.Node): ts.Node {
+  let current = node;
+  while (ts.isNonNullExpression(current) || ts.isParenthesizedExpression(current)) {
+    current = current.expression;
+  }
+  return current;
 }
 
 function collectFromPropertyAccess(node: ts.PropertyAccessExpression, out: FindingDraft[]): void {

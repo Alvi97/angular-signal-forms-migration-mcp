@@ -120,10 +120,9 @@ Rules that matter:
   too old for @angular/forms/signals and NO recipe will compile. Do not migrate; use
   get_angular_upgrade_plan.
 
-- A FINDING IS A SHAPE MATCH, NOT A PROVEN DEFECT. This parses text; it cannot see
-  runtime behaviour, and frameworks have fallbacks a parser cannot model. Before telling
-  anyone their code is broken, prove it with a failing test. If that test passes on
-  unmodified code, there was nothing to fix — say so and move on.
+- A FINDING IS A SHAPE MATCH, NOT A PROVEN DEFECT. This parses text and cannot see
+  runtime behaviour. Before calling anyone's code broken, prove it with a failing test;
+  if it passes on unmodified code, there was nothing to fix — say so and move on.
 
 - NEVER treat a "judgment" finding as mechanical. Judgment means the shape changes and a
   human decides the design. Ask, or present options — do not pick one silently. Some
@@ -134,16 +133,18 @@ Rules that matter:
   differs across Angular versions and a fallback is given; UNVERIFIED means the docs did
   not confirm it. Recipes carry provenance — if the user's Angular differs, say so.
 
-- TEMPLATES ARE NOT SCANNED. Only .ts is parsed, so each migrated component also needs
-  its .html updated ([formGroup]/formControlName -> [formField]), and template-driven
-  forms (ngModel) produce no findings. Totals are the Reactive Forms slice only.
+- TEMPLATES ARE NOT SCANNED — .ts only, so totals are the Reactive Forms slice and
+  ngModel forms produce nothing. Each migrated component still needs its .html done:
+  [formGroup]/formControlName -> [formField], and errors?.['x'] -> getError('kind').
+  Two keys are RENAMED (minlength/maxlength -> minLength/maxLength) and a stale key
+  fails SILENTLY, so take the kind from the recipe rather than reusing the old one.
 
-- Migrate in the suggested order. Files reported as not owning a form only reference one
-  defined elsewhere and cannot be migrated alone. Shared validator files own no form but
-  gate every consumer, so settle their error shape early.
+- Migrate in the suggested order. A file owning no form only references one defined
+  elsewhere and cannot move alone; shared validator files gate every consumer, so settle
+  their error shape early.
 
-- DO NOT INVENT API NAMES, when explaining as well as when writing code. Signal Forms is
-  too new to recall reliably, and one wrong name recurs: there is NO "Control" export —
+- DO NOT INVENT API NAMES, in prose as well as in code. Signal Forms is too new to
+  recall reliably, and one wrong name recurs: there is NO "Control" export —
   that is pre-release naming. It is FormField / [formField] and FormRoot / [formRoot]. If
   you are about to name an API no recipe gave you, say you are unsure instead.`;
 

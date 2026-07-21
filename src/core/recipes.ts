@@ -65,6 +65,7 @@ export const DOCS = {
   dynamicJson: 'https://angular.dev/guide/forms/signals/dynamic-forms-with-json',
   customControls: 'https://angular.dev/guide/forms/signals/custom-controls',
   migration: 'https://angular.dev/guide/forms/signals/migration',
+  formSubmission: 'https://angular.dev/guide/forms/signals/form-submission',
   rxjsInterop: 'https://angular.dev/ecosystem/rxjs-interop',
   schemas: 'https://angular.dev/guide/forms/signals/schemas',
   formBuilderApi: 'https://angular.dev/api/forms/FormBuilder',
@@ -107,6 +108,32 @@ const STABILITY =
   'experimental (v21 did), but angular.dev still advises that "if you need production ' +
   'stability guarantees, reactive forms remain a solid choice". Behaviour also changed ' +
   'between v21 and v22 — check your actual Angular version before applying this.';
+
+/**
+ * The string a built-in rule puts in `error.kind`.
+ *
+ * Recipes used to stop at the TypeScript side, which left the template half of the
+ * migration unsourced: an agent doing this for real had to read node_modules to find out
+ * what to match on. Worse, two of the keys are RENAMED, and getting one wrong is silent —
+ * `errors().some(e => e.kind === 'minlength')` is valid TypeScript that is never true, so
+ * the message simply stops appearing with nothing to debug.
+ *
+ * Every kind here is compile-pinned in verify/src/submission-and-error-kinds.ts.
+ */
+function errorKind(kind: string, reactiveKey = kind): string {
+  const rename =
+    reactiveKey === kind
+      ? 'Same spelling as the Reactive Forms error key.'
+      : `RENAMED — Reactive Forms reported \`{ ${reactiveKey}: ... }\`. A template still ` +
+        `matching '${reactiveKey}' compiles and silently never fires.`;
+  return (
+    `ERROR KIND: reports \`{ kind: '${kind}' }\`. A template that read ` +
+    `\`control.errors?.['${reactiveKey}']\` becomes ` +
+    `\`field().getError('${kind}')\` — getError() is reactive and template-callable, so you ` +
+    'do NOT need a computed() index or `errors().some(...)` (templates cannot take arrow ' +
+    `functions). ${rename}`
+  );
+}
 
 /**
  * The single structural fact behind most of these recipes, repeated because agents
@@ -372,6 +399,7 @@ readonly f = form(this.model, (path) => {
 });`,
       caveats: [
         STABILITY,
+        errorKind('required'),
         'VERSION-SENSITIVE emptiness rules. On v22, `null` and the empty string are missing ' +
           '(invalid), and `false` is ALSO missing, matching `<input type="checkbox" required>`. ' +
           'On v21 `false` PASSED. If the field can hold a boolean and you are on v21, express ' +
@@ -409,6 +437,8 @@ readonly f = form(this.model, (path) => {
 });`,
       caveats: [
         STABILITY,
+        // It becomes required(), so it reports required() — not a 'requiredTrue' kind.
+        errorKind('required', 'requiredTrue'),
         'VERSION-SENSITIVE. This recipe is correct for v22. The v21 docs defined "empty" as ' +
           'null or the empty string only, so on v21 required() PASSES for `false` and this ' +
           'substitution would silently accept an unchecked box. Confirm the project is on v22+ ' +
@@ -440,6 +470,7 @@ readonly f = form(this.model, (path) => {
 });`,
       caveats: [
         STABILITY,
+        errorKind('email'),
         'email() checks format only. Pair it with required() if the field is also mandatory — ' +
           'both rules run, and both can produce errors at once.',
         'Validation does not short-circuit: every rule on a field runs on every change, so ' +
@@ -468,6 +499,7 @@ readonly f = form(this.model, (path) => {
 });`,
       caveats: [
         STABILITY,
+        errorKind('min'),
         'min() is for numeric values. For string or array length use minLength().',
       ],
       sources: [DOCS.validation],
@@ -488,6 +520,7 @@ readonly f = form(this.model, (path) => {
 });`,
       caveats: [
         STABILITY,
+        errorKind('max'),
         'max() is for numeric values. For string or array length use maxLength().',
       ],
       sources: [DOCS.validation],
@@ -510,6 +543,7 @@ readonly f = form(this.model, (path) => {
 });`,
       caveats: [
         STABILITY,
+        errorKind('minLength', 'minlength'),
         'minLength() also works on arrays, which makes `minLength(path.items, 1)` the correct ' +
           'way to demand a non-empty list — required() passes for an empty array.',
       ],
@@ -529,7 +563,11 @@ readonly bio = new FormControl('', [Validators.maxLength(500)]);`,
 readonly f = form(this.model, (path) => {
   maxLength(path.bio, 500, { message: 'Bio cannot exceed 500 characters' });
 });`,
-      caveats: [STABILITY, 'Counts characters for strings and elements for arrays.'],
+      caveats: [
+        STABILITY,
+        errorKind('maxLength', 'maxlength'),
+        'Counts characters for strings and elements for arrays.',
+      ],
     },
   ],
   [
@@ -550,6 +588,7 @@ readonly f = form(this.model, (path) => {
 });`,
       caveats: [
         STABILITY,
+        errorKind('pattern'),
         'Reactive Forms accepted a string pattern and wrapped it in `^...$`. Pass a RegExp here ' +
           'and anchor it yourself, or the match semantics will differ.',
         'pattern() is the one built-in rule that does NOT mirror to a native attribute. ' +
@@ -1077,6 +1116,10 @@ readonly showWarning = computed(() => this.f().dirty() && this.f().touched());`,
         '`status` (the string union VALID / INVALID / PENDING / DISABLED) has no documented ' +
           'counterpart — Signal Forms exposes separate boolean signals. Rewrite comparisons ' +
           'against the string as valid() / invalid() / pending() checks.',
+        'To ask for ONE error, use `f.email().getError(kind)` rather than filtering ' +
+          '`errors()`. It is reactive, it narrows (a `minLength` error carries `.minLength`), ' +
+          'and — unlike `errors().some(e => ...)` — it can be called straight from a template, ' +
+          'which cannot contain arrow functions. See each validator recipe for its kind.',
       ],
       sources: [DOCS.essentials, DOCS.fieldState, DOCS.models],
     },
@@ -1177,14 +1220,119 @@ onSubmit(): void {
         'enable()/disable() become the `disabled()` rule; setValidators()/addValidators() ' +
           'become `applyWhen()`. The migration docs note that on the SignalFormControl compat ' +
           'class these imperative calls actively THROW, which is a good signal of intent.',
-        'setErrors() is not supported: errors come from validation rules. An error that used ' +
-          'to be pushed in from outside (a server response, say) belongs in a validateHttp() ' +
-          'or validateAsync() rule instead.',
+        'setErrors() has a direct documented replacement, and it is NOT an async validator: ' +
+          'return the error from the submit() action and Angular routes it to the field. See ' +
+          'the `formSubmission` recipe — this is the single most common reason setErrors() ' +
+          'exists (a rejected sign-in, a duplicate email) and hand-rolling it is a mistake.',
         'VERSION-SENSITIVE rule signature: v22 takes `disabled(path, { when: cb })` where v21 ' +
           'took a bare callback `disabled(path, cb)`. Check your Angular version.',
       ],
       sources: [DOCS.essentials, DOCS.fieldState, DOCS.formLogic, DOCS.migration],
       versionSensitive: true,
+    },
+  ],
+  [
+    'formSubmission',
+    {
+      construct: 'formSubmission',
+      description:
+        'The submit-and-show-the-server-error cycle. Reactive Forms had no support for it, ' +
+        'so components hand-built the whole thing: an isSubmitting flag, markAllAsTouched() ' +
+        'on invalid, and setErrors() to push the rejection onto a control. Signal Forms owns ' +
+        'all three — the submit() action returns the errors and Angular routes them to the ' +
+        'fields named in each one.',
+      before: `import { FormBuilder, FormGroup } from '@angular/forms';
+
+export class LoginComponent {
+  loginForm: FormGroup;
+  isSubmitting = false;
+
+  onSubmit(): void {
+    if (this.loginForm.invalid) {
+      this.loginForm.markAllAsTouched();
+      return;
+    }
+    this.isSubmitting = true;
+
+    this.auth.login(this.loginForm.value).subscribe({
+      next: () => { this.isSubmitting = false; },
+      error: (err) => {
+        this.isSubmitting = false;
+        // The rejection has to be pushed onto the control by hand, and it stays
+        // there until something happens to revalidate that control.
+        this.loginForm.get('password')?.setErrors({ invalidCredentials: true });
+      },
+    });
+  }
+}`,
+      after: `import { signal } from '@angular/core';
+import { form, required, email, minLength, submit } from '@angular/forms/signals';
+
+export class LoginComponent {
+  readonly model = signal({ email: '', password: '' });
+
+  readonly f = form(
+    this.model,
+    (path) => {
+      required(path.email);
+      email(path.email);
+      required(path.password);
+      minLength(path.password, 8);
+    },
+    {
+      submission: {
+        // Return nothing on success. Return an error (or an array of them) to fail,
+        // with fieldTree naming the field it belongs to.
+        action: async (f) => {
+          const result = await this.auth.login(f().value());
+          if (result.ok) return;
+          return {
+            kind: 'invalidCredentials',
+            message: 'Incorrect email or password.',
+            fieldTree: f.password,
+          };
+        },
+        // Replaces the markAllAsTouched()-and-bail branch: submit() has already
+        // marked every interactive field touched by the time this runs.
+        onInvalid: (f) => {
+          f().errorSummary()[0]?.fieldTree().focusBoundControl();
+        },
+      },
+    },
+  );
+
+  async onSubmit(): Promise<void> {
+    await submit(this.f);
+  }
+}
+
+// Template: submitting() replaces the isSubmitting flag entirely.
+// <button type="submit" [disabled]="f().submitting()">Sign in</button>`,
+      caveats: [
+        STABILITY,
+        'THE ERROR CLEARS ITSELF. "Submission errors clear automatically when the user edits ' +
+          'the field." Do not reproduce the reactive-forms dance of tracking which value was ' +
+          "rejected so you can clear the error later — that is the framework's job now.",
+        'A submission error is NOT a validation rule: it does not recompute. The docs are ' +
+          'explicit that "once cleared, they do not reappear unless the form is submitted ' +
+          'again". Validation rules, by contrast, re-run on every change.',
+        'DO NOT reach for validateHttp() / validateAsync() here. Those validate a value as it ' +
+          'changes (is this username taken?) and would call your endpoint on every keystroke. ' +
+          'A credential rejection is a submission result.',
+        '`fieldTree` takes the FIELD ITSELF (`f.password`), not a path string. Omit it and the ' +
+          'error lands on the submitted field — which for `submit(f)` is the whole form.',
+        'Success is signalled by returning nothing: `null`, `undefined`, or a bare `return`.',
+        '`f().submitting()` is true while the action runs and resets itself when it settles, ' +
+          'so a hand-maintained isSubmitting flag is dead code after the migration.',
+        'submit() returns Promise<boolean> — false when validation failed OR the action ' +
+          'returned errors. Concurrent submits are refused: a second call while one is in ' +
+          'flight returns false immediately without running the action.',
+        'By default a pending async validator does NOT block submission. If the form has one ' +
+          "whose answer must be in before submitting, pass `ignoreValidators: 'none'`.",
+        'The FormRoot directive on the <form> element calls submit() for you, sets novalidate ' +
+          'and prevents the default navigation. Use it instead of (ngSubmit) plumbing.',
+      ],
+      sources: [DOCS.formSubmission, DOCS.fieldState],
     },
   ],
   [
@@ -1636,7 +1784,13 @@ const ALIASES: ReadonlyMap<string, string> = new Map([
   ['abstractcontrol.markasdirty', 'formStateWrite'],
   ['abstractcontrol.markaspristine', 'formStateWrite'],
   ['abstractcontrol.markaspending', 'formStateWrite'],
-  ['abstractcontrol.seterrors', 'formStateWrite'],
+  // setErrors() is almost always a server rejection, and that has its own documented home.
+  ['abstractcontrol.seterrors', 'formSubmission'],
+  ['seterrors', 'formSubmission'],
+  ['formsubmission', 'formSubmission'],
+  ['submit', 'formSubmission'],
+  ['submission', 'formSubmission'],
+  ['onsubmit', 'formSubmission'],
   ['abstractcontrol.updatevalueandvalidity', 'formStateWrite'],
   ['abstractcontrol.enable', 'formStateWrite'],
   ['abstractcontrol.disable', 'formStateWrite'],

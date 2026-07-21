@@ -83,3 +83,23 @@ describe('findings are not proven defects', () => {
     expect(SERVER_INSTRUCTIONS).toMatch(/passes\s+on\s+unmodified/i);
   });
 });
+
+/**
+ * Only .ts is parsed, so the template half of every migration is the agent's problem — and
+ * the one trap there is invisible. `minlength` became `minLength`; a template that keeps
+ * the old key still compiles and simply never matches, so the error message disappears
+ * with nothing to debug. Whoever trims these instructions must not trim this.
+ */
+describe('the silent template trap is called out', () => {
+  it('names both renamed error keys', () => {
+    expect(SERVER_INSTRUCTIONS).toMatch(/minlength\/maxlength\s*->\s*minLength\/maxLength/);
+  });
+
+  it('says the failure is silent', () => {
+    expect(SERVER_INSTRUCTIONS).toMatch(/fails\s+SILENTLY/);
+  });
+
+  it('points at getError rather than leaving the read to invention', () => {
+    expect(SERVER_INSTRUCTIONS).toContain("getError('kind')");
+  });
+});
