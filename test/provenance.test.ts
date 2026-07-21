@@ -90,3 +90,43 @@ describe('docs:audit', () => {
     for (const entry of report.entries) expect(text).toContain(entry.construct);
   });
 });
+
+/**
+ * Three different strengths of evidence live in these recipes, and conflating them is how
+ * a tool ends up asserting something the docs never said:
+ *
+ *   compile-proven — the API exists and takes these arguments (verify:recipes)
+ *   doc-quoted     — angular.dev explicitly states it
+ *   inferred       — follows from documented pieces, but is written nowhere
+ *
+ * An audit of all 99 falsifiable claims against the live docs found several in the third
+ * category presented as though they were in the second. Those must say so.
+ */
+describe('claims that are inference are labelled as inference', () => {
+  const find = (construct: string) => {
+    const recipe = getSignalFormsRecipe(construct);
+    if (!recipe.found) throw new Error(`missing recipe: ${construct}`);
+    return recipe;
+  };
+
+  it.each([
+    // The v22 docs never mention NG_VALUE_ACCESSOR, forwardRef or the CVA callbacks.
+    ['ControlValueAccessor', /INFERRED, not documented/],
+    // FormBuilder appears nowhere in the Signal Forms guides.
+    ['FormBuilder', /INFERRED, not documented/],
+    // schema()+apply() inside applyEach() is composed from documented primitives only.
+    ['FormArray', /PARTIALLY UNVERIFIED/],
+  ])('%s marks its undocumented claim', (construct, marker) => {
+    expect(find(construct).caveats.join('\n')).toMatch(marker);
+  });
+
+  it('states the stability position exactly as the docs support it', () => {
+    // Verified against both versions: v21 carried a CRITICAL "experimental" banner, v22
+    // dropped it — but v22 never says "stable", and still steers anyone needing
+    // production stability guarantees toward reactive forms.
+    const caveats = find('FormControl').caveats.join('\n');
+    expect(caveats).toMatch(/no longer labels Signal Forms\s+experimental/);
+    expect(caveats).toContain('reactive forms remain a solid choice');
+    expect(caveats).not.toMatch(/\bis stable\b|production[- ]ready/i);
+  });
+});

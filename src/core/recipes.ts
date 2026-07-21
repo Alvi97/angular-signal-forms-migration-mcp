@@ -258,8 +258,10 @@ export class Signup {
       caveats: [
         STABILITY,
         MODEL_FIRST,
-        'Delete the injection only after every `fb.group()` / `fb.control()` / `fb.array()` ' +
-          'call in the class has been migrated, or the class will not compile.',
+        'INFERRED, not documented: delete the injection only after every `fb.group()` / ' +
+          '`fb.control()` / `fb.array()` call in the class is migrated, or it will not ' +
+          'compile. FormBuilder is not mentioned anywhere in the v22 Signal Forms guides — ' +
+          'this follows from TypeScript, not from Angular guidance.',
       ],
       sources: [DOCS.essentials, DOCS.overview],
     },
@@ -1252,11 +1254,15 @@ export class RatingInput implements FormValueControl<number> {
         'Migration can be incremental in this direction: a FormValueControl component works ' +
           'as-is with Reactive and Template-Driven forms, so you can convert the control ' +
           'first and leave its consumers on FormGroup until later.',
-        'Drop `NG_VALUE_ACCESSOR`, the `forwardRef`, and all four callback methods. There is ' +
-          'no provider to register — the interface is structural.',
-        'Optional state inputs a control may declare: touched, dirty, errors, valid, invalid, ' +
-          'pending, disabled, disabledReasons, readonly, hidden, required, min, max, ' +
-          'minLength, maxLength, pattern, name. Declare only the ones you render.',
+        'INFERRED, not documented: drop `NG_VALUE_ACCESSOR`, the `forwardRef` and all four ' +
+          'callback methods. The v22 docs never mention any of those identifiers, and every ' +
+          'published custom-control example has no `providers` array — but the docs do not ' +
+          'state the removal, so confirm against your own build.',
+        'Optional state PROPERTIES (the docs\' term, not "inputs") a control may declare: ' +
+          'touched, dirty, errors, valid, invalid, pending, disabled, disabledReasons, ' +
+          'readonly, hidden, required, min, max, minLength, maxLength, pattern, name. All are ' +
+          'optional — implement only what your control needs. `touched` is special: it accepts ' +
+          'model(), input() or an OutputRef.',
         'Report blur with a `touch` output rather than the old registerOnTouched callback.',
       ],
       sources: [DOCS.customControls, DOCS.migration],
