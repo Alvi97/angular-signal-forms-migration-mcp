@@ -22,6 +22,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "docs:audit": "npm run build && node dist/cli/docs-audit.js",
+    "docs:links": "npm run build && node scripts/check-doc-links.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "check": "npm run typecheck && npm run lint && npm run test",
