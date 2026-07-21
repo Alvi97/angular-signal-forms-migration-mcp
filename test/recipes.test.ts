@@ -205,3 +205,58 @@ describe('Validators.requiredTrue', () => {
     expect(result.caveats.some((c) => c.includes('validate('))).toBe(true);
   });
 });
+
+describe('nested array and group shapes', () => {
+  const recipe = getSignalFormsRecipe('FormArray');
+
+  it('demonstrates all three nested compositions', () => {
+    expect(recipe.found).toBe(true);
+    if (!recipe.found) return;
+
+    // group-inside-array, array-inside-group, array-inside-array-item.
+    expect(recipe.after).toContain('apply(item.address, addressSchema)');
+    expect(recipe.after).toContain('applyEach(section.rows');
+    expect(recipe.after).toMatch(/applyEach\(path\.groups[\s\S]*applyEach\(group\.rules/);
+  });
+
+  it('shows how to mutate a nested array immutably', () => {
+    if (!recipe.found) return;
+    // The trap is mutating the inner array in place; the outer levels must be rebuilt.
+    expect(recipe.after).toContain('groups: current.groups.map(');
+    expect(recipe.after).toContain('rules: [...group.rules,');
+  });
+
+  it('uses the documented composition primitives, not invented ones', () => {
+    if (!recipe.found) return;
+    expect(recipe.after).toContain('schema<');
+    expect(recipe.after).toContain("from '@angular/forms/signals'");
+  });
+
+  it('states honestly that the nested COMPOSITION is not in the docs', () => {
+    if (!recipe.found) return;
+    // The primitives are documented; composing them is not shown anywhere in v22.
+    // Claiming otherwise would be exactly the failure this project exists to avoid.
+    const caveat = recipe.caveats.find((c) => c.includes('PARTIALLY UNVERIFIED'));
+    expect(caveat).toBeDefined();
+    expect(caveat).toContain('angular.dev/guide/forms/signals/schemas');
+  });
+
+  it('cites the schemas guide as a source', () => {
+    if (!recipe.found) return;
+    expect(recipe.provenance.sources).toContain('https://angular.dev/guide/forms/signals/schemas');
+  });
+
+  it('points nested-group findings at the FormArray recipe', () => {
+    // A nested `fb.group` finding resolves to FormBuilder.group, so that recipe has to
+    // hand the agent onward rather than showing only the flat shape.
+    for (const construct of ['FormBuilder.group', 'FormGroup']) {
+      const r = getSignalFormsRecipe(construct);
+      expect(r.found, construct).toBe(true);
+      if (!r.found) continue;
+      expect(
+        r.caveats.some((c) => c.includes('FormArray')),
+        construct,
+      ).toBe(true);
+    }
+  });
+});

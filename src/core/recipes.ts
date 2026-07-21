@@ -66,6 +66,7 @@ export const DOCS = {
   customControls: 'https://angular.dev/guide/forms/signals/custom-controls',
   migration: 'https://angular.dev/guide/forms/signals/migration',
   rxjsInterop: 'https://angular.dev/ecosystem/rxjs-interop',
+  schemas: 'https://angular.dev/guide/forms/signals/schemas',
 } as const;
 
 /** Pages that establish the core model/form()/schema shape every recipe rests on. */
@@ -220,6 +221,8 @@ export class Checkout {
         IMPORT_FORMFIELD,
         'Bind nested fields directly: `[formField]="f.address.street"`. There is no ' +
           '`formGroupName` / `formControlName` indirection.',
+        'For a group nesting an ARRAY, see the `FormArray` recipe — per-item rules go ' +
+          'through applyEach(), and the nested shapes are worked through there.',
         'State propagates upward: if `f.address.street().invalid()` is true then ' +
           '`f.address().invalid()` and `f().invalid()` are true as well.',
         'The root form is itself a field — `f().valid()` gives whole-form validity, which is ' +
@@ -303,7 +306,9 @@ export class Signup {
         IMPORT_FORMFIELD,
         'The `[value, validators]` array form splits in two: the value goes into the model ' +
           'signal, the validators become rules in the schema function.',
-        'A group containing `fb.array(...)` is NOT covered here — array migration lands in M2.',
+        'A group that NESTS another group or an array is judgment, not a rename. See the ' +
+          '`FormArray` recipe for the composed shapes (group-inside-array, array-inside-group, ' +
+          'array-inside-array) and for how to update a nested array immutably.',
       ],
       sources: [DOCS.essentials, DOCS.validation, DOCS.models],
     },
@@ -658,7 +663,88 @@ export class Order {
       items: current.items.filter((_, i) => i !== index),
     }));
   }
-}`,
+}
+
+// ===========================================================================
+// NESTED SHAPES — the common real-world cases. schema(), apply() and
+// applyEach() are each documented individually; the COMPOSITIONS below are
+// not shown in the v22 docs. See the caveats.
+// ===========================================================================
+import { apply, schema } from '@angular/forms/signals';
+import type { SchemaPathTree } from '@angular/forms/signals';
+
+// --- 1. GROUP INSIDE AN ARRAY -------------------------------------------
+// Model: { items: [{ name, quantity, address: { street, city } }] }
+// Reactive Forms: fb.array([ fb.group({ ..., address: fb.group({...}) }) ])
+
+const addressSchema = schema<Address>((address) => {
+  required(address.street);
+  required(address.city);
+});
+
+const lineItemSchema = schema<LineItem>((item) => {
+  required(item.name);
+  min(item.quantity, 1);
+  apply(item.address, addressSchema);
+});
+
+readonly orderForm = form(this.orderModel, (path) => {
+  applyEach(path.items, lineItemSchema);
+});
+
+// --- 2. ARRAY INSIDE A GROUP --------------------------------------------
+// Model: { section: { title, rows: [{ label }] } }
+// Reactive Forms: fb.group({ section: fb.group({ rows: fb.array([...]) }) })
+
+const sectionSchema = schema<Section>((section) => {
+  required(section.title);
+  applyEach(section.rows, (row) => required(row.label));
+});
+
+readonly configForm = form(this.configModel, (path) => {
+  apply(path.section, sectionSchema);
+});
+
+// --- 3. ARRAY INSIDE AN ARRAY ITEM --------------------------------------
+// Model: { groups: [{ label, rules: [{ field, op }] }] }
+// This is the risk-rating / document-config shape: fb.array of fb.group
+// each containing another fb.array.
+
+readonly rulesForm = form(this.rulesModel, (path) => {
+  applyEach(path.groups, (group: SchemaPathTree<RuleGroup>) => {
+    required(group.label);
+    applyEach(group.rules, (rule) => {
+      required(rule.field);
+      required(rule.op);
+    });
+  });
+});
+
+// --- Mutating a NESTED array: rebuild every level, top down --------------
+addRule(groupIndex: number): void {
+  this.rulesModel.update((current) => ({
+    ...current,
+    groups: current.groups.map((group, i) =>
+      i === groupIndex ? { ...group, rules: [...group.rules, blankRule()] } : group,
+    ),
+  }));
+}
+
+removeRule(groupIndex: number, ruleIndex: number): void {
+  this.rulesModel.update((current) => ({
+    ...current,
+    groups: current.groups.map((group, i) =>
+      i === groupIndex
+        ? { ...group, rules: group.rules.filter((_, j) => j !== ruleIndex) }
+        : group,
+    ),
+  }));
+}
+
+// Reading a deeply nested field:  this.rulesForm.groups[0].rules[1].field().value()
+// Template:  @for (group of rulesForm.groups; track group) {
+//              @for (rule of group.rules; track rule) {
+//                <input [formField]="rule.field" />`,
       caveats: [
         STABILITY,
         MODEL_FIRST,
@@ -674,8 +760,23 @@ export class Order {
           '`minLength(path.items, 1)`.',
         'Objects in an array automatically receive tracking identities, so field state ' +
           '(touched, dirty, validation) survives reordering.',
+        'PARTIALLY UNVERIFIED — nested shapes. schema(), apply(), applyEach() and indexed ' +
+          'access (form.items[0].name) are each documented individually, but the v22 docs ' +
+          'contain NO example composing them: no group-inside-array, no array-inside-group, ' +
+          'and no applyEach nested inside applyEach. The nested section above follows from ' +
+          'the documented signatures, but was not copied from a published example. Confirm ' +
+          'on https://angular.dev/guide/forms/signals/schemas before relying on it.',
+        'Nested arrays are JUDGMENT work, not a rename. Reactive Forms let you build a ' +
+          'ragged structure at runtime; the model signal has to describe that shape as a ' +
+          'type up front. Decide the model before touching code.',
+        'Mutating a nested array means rebuilding EVERY level above it — `.map()` the outer ' +
+          'array, spread the item, replace the inner array. Mutating in place at any level ' +
+          'leaves the signal unnotified and the UI stale.',
+        'Prefer named schemas (`schema<Item>(...)` + `apply()`) over inline callbacks once ' +
+          'you are more than one level deep — a reusable schema is also how the same item ' +
+          'rules get shared between two different forms.',
       ],
-      sources: [DOCS.validation, DOCS.dynamicJson, DOCS.models, DOCS.fieldState],
+      sources: [DOCS.validation, DOCS.dynamicJson, DOCS.models, DOCS.fieldState, DOCS.schemas],
     },
   ],
   [
