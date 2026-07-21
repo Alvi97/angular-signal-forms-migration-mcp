@@ -248,3 +248,143 @@ describe('findFormCandidates', () => {
     expect(result.data).toEqual([]);
   });
 });
+
+/* -------------------------------------------------------------------------- */
+/* Regressions found by running the tool against a real Angular repo.          */
+/* Fixtures below are reduced from mockio-master (Nx workspace, Angular 19).   */
+/* -------------------------------------------------------------------------- */
+
+describe('constructs used in type position', () => {
+  it('detects a FormGroup declared only as a property type', () => {
+    // The overwhelmingly common shape: the type is annotated on the property and
+    // the group is built later in the constructor via FormBuilder.
+    const findings = detectInSource(
+      '/app/login.component.ts',
+      `${IMPORT}
+export class Login {
+  loginForm: FormGroup;
+}`,
+    );
+
+    const finding = find(findings, 'FormGroup');
+    expect(finding.line).toBe(3);
+    expect(finding.classification).toBe('mechanical');
+  });
+
+  it('detects a FormControl in an `as` assertion', () => {
+    const findings = detectInSource(
+      '/app/profile.component.ts',
+      `${IMPORT}
+export class Profile {
+  get firstName() { return this.profileForm.get('firstName') as FormControl; }
+}`,
+    );
+
+    expect(constructs(findings)).toContain('FormControl');
+  });
+
+  it('does not report a control type used as a function parameter', () => {
+    // `validate(group: FormGroup)` is a validator signature, not a form declaration.
+    // It is reported as customValidator instead — see below.
+    const findings = detectInSource(
+      '/app/v.ts',
+      `${IMPORT}
+export function passwordMatchValidator(group: FormGroup) { return null; }`,
+    );
+
+    expect(constructs(findings)).not.toContain('FormGroup');
+  });
+});
+
+describe('AbstractControl.get accessors', () => {
+  const SOURCE = `${IMPORT}
+export class Profile {
+  profileForm: FormGroup;
+  get firstName() { return this.profileForm.get('firstName'); }
+  dynamic(key: string) { return this.profileForm.get(key); }
+}`;
+
+  it('detects .get() on a known form and calls a literal key mechanical', () => {
+    const findings = detectInSource('/app/profile.component.ts', SOURCE);
+    const finding = findings.find((f) => f.construct === 'AbstractControl.get' && f.line === 4);
+    expect(finding?.classification).toBe('mechanical');
+  });
+
+  it('treats a computed key as judgment', () => {
+    const findings = detectInSource('/app/profile.component.ts', SOURCE);
+    const finding = findings.find((f) => f.construct === 'AbstractControl.get' && f.line === 5);
+    expect(finding?.classification).toBe('judgment');
+  });
+
+  it('ignores .get() on anything that is not a known form', () => {
+    // All four shapes below co-exist with real forms in mockio-master and must stay out
+    // of the report — `.get()` is far too common a method name to match blindly.
+    const findings = detectInSource(
+      '/app/other.component.ts',
+      `${IMPORT}
+const cache = new Map<string, string>();
+const hit = cache.get('key');
+const p = route.snapshot.queryParamMap.get('id');
+const formData = new FormData();
+const name = formData.get('name') as string;
+this.route.params.subscribe((params) => { const id = params.get('id'); });`,
+    );
+
+    expect(constructs(findings)).not.toContain('AbstractControl.get');
+  });
+
+  it('detects .get() on a control-typed parameter, not just a property', () => {
+    // Inside a cross-field validator the form arrives as an argument.
+    const findings = detectInSource(
+      '/app/v.ts',
+      `${IMPORT}
+export function match(group: FormGroup) {
+  return group.get('password')?.value === group.get('confirm')?.value;
+}`,
+    );
+
+    expect(constructs(findings)).toContain('AbstractControl.get');
+  });
+});
+
+describe('custom validators not typed ValidatorFn', () => {
+  it('detects a cross-field validator taking a FormGroup', () => {
+    // Real shape from profile.component.ts — this file was previously reported
+    // as 100% mechanical, hiding the only judgment call in it.
+    const findings = detectInSource(
+      '/app/profile.component.ts',
+      `${IMPORT}
+export class Profile {
+  passwordMatchValidator(formGroup: FormGroup) {
+    return formGroup.value.a === formGroup.value.b ? null : { mismatch: true };
+  }
+}`,
+    );
+
+    const finding = find(findings, 'customValidator');
+    expect(finding.classification).toBe('judgment');
+    expect(finding.line).toBe(3);
+  });
+
+  it('detects a validator taking an AbstractControl regardless of its name', () => {
+    const findings = detectInSource(
+      '/app/v.ts',
+      `import { AbstractControl } from '@angular/forms';
+export function noWhitespace(control: AbstractControl) {
+  return control.value?.trim() ? null : { whitespace: true };
+}`,
+    );
+
+    expect(find(findings, 'customValidator').classification).toBe('judgment');
+  });
+
+  it('does not report an ordinary method that happens to take a string', () => {
+    const findings = detectInSource(
+      '/app/v.ts',
+      `${IMPORT}
+export class X { validateEmailFormat(value: string) { return value.includes('@'); } }`,
+    );
+
+    expect(constructs(findings)).not.toContain('customValidator');
+  });
+});

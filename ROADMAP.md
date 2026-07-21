@@ -46,6 +46,15 @@ milestone could take an optional `angularVersion` input.
   type resolution. A `FormBuilder` obtained in an unusual way will be missed.
   Building a full `ts.Program` would be authoritative but requires resolving the
   user's tsconfig and node_modules on every call.
+- **`.get()` detection depends on name binding.** `form.get('k')` is only reported when the
+  receiver was bound to a form in pass 1 — annotated `: FormGroup` / `: AbstractControl`, or
+  initialised from `new FormGroup(...)` / `fb.group(...)`. This is what keeps `params.get()`,
+  `formData.get()` and `map.get()` out of the report (verified against a real workspace: 38
+  true positives, 0 false positives). The cost is that a form arriving through an unannotated
+  intermediate — say `getForm().get('email')` — is missed.
+- **Template-driven forms are out of scope.** Files importing only `FormsModule` (`ngModel`)
+  produce no findings. That is correct for this tool's Reactive-Forms remit, but such files do
+  still need migrating; a workspace scan will under-report the total effort.
 - **Templates are not parsed.** `[formGroup]`, `formControlName` and friends live in
   `.html` files, which this server does not read. The agent must update templates
   using the recipe guidance.

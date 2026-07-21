@@ -86,6 +86,21 @@ const MECHANICAL_VALIDATORS: ReadonlySet<string> = new Set([
   'pattern',
 ]);
 
+/**
+ * Control types that identify a variable as holding a Reactive Forms object.
+ * Used both to report type-position usage and to decide whether `x.get('k')` is a
+ * form accessor or an unrelated `Map`/`HttpParams` lookup.
+ */
+const CONTROL_TYPES: ReadonlySet<string> = new Set([
+  'FormGroup',
+  'FormControl',
+  'FormArray',
+  'AbstractControl',
+]);
+
+/** Control types M1 reports when they appear in type position. FormArray lands in M2. */
+const REPORTED_CONTROL_TYPES: ReadonlySet<string> = new Set(['FormGroup', 'FormControl']);
+
 /* -------------------------------------------------------------------------- */
 /* Per-file detection                                                          */
 /* -------------------------------------------------------------------------- */
@@ -116,11 +131,14 @@ export function detectInSource(filePath: string, text: string): Finding[] {
   // Without this, a bare `.valueChanges` matches any observable in the codebase.
   if (!importsAngularForms(sourceFile)) return [];
 
-  const formBuilderNames = collectFormBuilderNames(sourceFile);
+  const names: BoundNames = {
+    formBuilders: collectFormBuilderNames(sourceFile),
+    forms: collectFormLikeNames(sourceFile),
+  };
   const drafts: FindingDraft[] = [];
 
   const visit = (node: ts.Node): void => {
-    collectFromNode(node, formBuilderNames, drafts);
+    collectFromNode(node, names, drafts);
     ts.forEachChild(node, visit);
   };
   ts.forEachChild(sourceFile, visit);
@@ -146,6 +164,61 @@ function importsAngularForms(sourceFile: ts.SourceFile): boolean {
  *   constructor(private fb: FormBuilder) {}
  *   private readonly fb = inject(FormBuilder);
  */
+/** Local names bound during pass 1, consumed by pass 2. */
+interface BoundNames {
+  /** Names holding a FormBuilder, so `fb.group(...)` can be matched without a TypeChecker. */
+  readonly formBuilders: ReadonlySet<string>;
+  /** Names holding a form object, so `form.get('k')` is distinguishable from `map.get('k')`. */
+  readonly forms: ReadonlySet<string>;
+}
+
+/**
+ * Finds every local name that holds a Reactive Forms object, whether it was annotated
+ * (`profileForm: FormGroup`) or initialised (`= fb.group({...})`, `= new FormGroup(...)`).
+ *
+ * Without this, reporting `x.get('key')` would also flag every `Map`, `HttpParams` and
+ * `queryParamMap` lookup that happens to live in a file importing @angular/forms.
+ */
+function collectFormLikeNames(sourceFile: ts.SourceFile): ReadonlySet<string> {
+  const names = new Set<string>();
+
+  const visit = (node: ts.Node): void => {
+    if (ts.isPropertyDeclaration(node) || ts.isVariableDeclaration(node) || ts.isParameter(node)) {
+      const name = declaredName(node.name);
+      if (name !== undefined && (isControlType(node.type) || holdsFormInitializer(node))) {
+        names.add(name);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(sourceFile, visit);
+
+  return names;
+}
+
+function isControlType(type: ts.TypeNode | undefined): boolean {
+  if (type === undefined || !ts.isTypeReferenceNode(type)) return false;
+  return ts.isIdentifier(type.typeName) && CONTROL_TYPES.has(type.typeName.text);
+}
+
+/** True for `= new FormGroup(...)`, `= fb.group({...})` and their array/control siblings. */
+function holdsFormInitializer(node: ts.Node): boolean {
+  const initializer =
+    (ts.isPropertyDeclaration(node) || ts.isVariableDeclaration(node)) && node.initializer
+      ? node.initializer
+      : undefined;
+  if (initializer === undefined) return false;
+
+  if (ts.isNewExpression(initializer) && ts.isIdentifier(initializer.expression)) {
+    return CONTROL_TYPES.has(initializer.expression.text);
+  }
+  if (ts.isCallExpression(initializer) && ts.isPropertyAccessExpression(initializer.expression)) {
+    const method = declaredName(initializer.expression.name);
+    return method === 'group' || method === 'array' || method === 'control';
+  }
+  return false;
+}
+
 function collectFormBuilderNames(sourceFile: ts.SourceFile): ReadonlySet<string> {
   const names = new Set<string>();
 
@@ -196,17 +269,14 @@ function isInjectFormBuilder(node: ts.Node): boolean {
 /* Pass 2 — match constructs                                                   */
 /* -------------------------------------------------------------------------- */
 
-function collectFromNode(
-  node: ts.Node,
-  formBuilderNames: ReadonlySet<string>,
-  out: FindingDraft[],
-): void {
+function collectFromNode(node: ts.Node, names: BoundNames, out: FindingDraft[]): void {
   if (ts.isNewExpression(node)) {
     collectFromNewExpression(node, out);
     return;
   }
   if (ts.isCallExpression(node)) {
-    collectFromFormBuilderCall(node, formBuilderNames, out);
+    collectFromFormBuilderCall(node, names.formBuilders, out);
+    collectFromControlGet(node, names.forms, out);
     return;
   }
   if (ts.isPropertyAccessExpression(node)) {
@@ -217,9 +287,98 @@ function collectFromNode(
     collectFromTypeReference(node, out);
     return;
   }
+  if (ts.isFunctionLike(node)) {
+    collectCustomValidatorDeclaration(node, out);
+  }
   if (ts.isParameter(node)) {
     collectFormBuilderInjection(node, out);
   }
+}
+
+/**
+ * `form.get('email')` — a string-keyed lookup with no Signal Forms counterpart; the field
+ * tree is reached by dot notation instead. Only matched on receivers pass 1 bound to a
+ * form, so `map.get(k)` and `queryParamMap.get(k)` stay out of the report.
+ */
+function collectFromControlGet(
+  node: ts.CallExpression,
+  formNames: ReadonlySet<string>,
+  out: FindingDraft[],
+): void {
+  const callee = node.expression;
+  if (!ts.isPropertyAccessExpression(callee)) return;
+  if (declaredName(callee.name) !== 'get') return;
+  if (!isKnownReceiver(callee.expression, formNames)) return;
+
+  const [key] = node.arguments;
+  const literalKey = key !== undefined && ts.isStringLiteralLike(key);
+
+  out.push({
+    construct: 'AbstractControl.get',
+    node,
+    classification: literalKey ? 'mechanical' : 'judgment',
+    reason: literalKey
+      ? 'A literal .get("key") becomes dot notation on the field tree (form.key).'
+      : 'The key is computed, so there is no single field to rewrite to; the surrounding ' +
+        'code must be redesigned around the typed field tree.',
+  });
+}
+
+/**
+ * A custom validator that is NOT annotated `ValidatorFn` — the shape real code uses for
+ * cross-field checks, e.g. `passwordMatchValidator(group: FormGroup)`. Missing these makes
+ * a file look 100% mechanical when it contains the only judgment call in the migration.
+ */
+function collectCustomValidatorDeclaration(
+  node: ts.SignatureDeclaration,
+  out: FindingDraft[],
+): void {
+  // The factory pattern `static x(): ValidatorFn { return (c: AbstractControl) => ... }`
+  // is already reported at the ValidatorFn annotation; don't report the inner arrow too.
+  if (hasValidatorAncestor(node)) return;
+
+  const parameterTypes = node.parameters.map((parameter) => typeReferenceName(parameter.type));
+  const takesAbstractControl = parameterTypes.includes('AbstractControl');
+  const takesControl = parameterTypes.some((name) => name !== undefined && CONTROL_TYPES.has(name));
+
+  const name = functionLikeName(node);
+  const namedLikeValidator = name !== undefined && /validat/i.test(name);
+
+  // An AbstractControl parameter is validator-shaped on its own. Any other control type
+  // needs the name to agree, or ordinary helpers taking a FormGroup would be swept in.
+  if (!takesAbstractControl && !(takesControl && namedLikeValidator)) return;
+
+  out.push({
+    construct: 'customValidator',
+    node,
+    classification: 'judgment',
+    reason:
+      'A custom validator must be rewritten against the Signal Forms validation API; the ' +
+      'control argument and the error shape both change. Cross-field checks additionally ' +
+      'move from the group to a rule on a specific path.',
+  });
+}
+
+function hasValidatorAncestor(node: ts.Node): boolean {
+  for (let parent = node.parent; parent !== undefined; parent = parent.parent) {
+    if (!ts.isFunctionLike(parent)) continue;
+    if (typeReferenceName(parent.type) === 'ValidatorFn') return true;
+    if (parent.parameters.some((p) => typeReferenceName(p.type) === 'AbstractControl')) return true;
+  }
+  return false;
+}
+
+function functionLikeName(node: ts.SignatureDeclaration): string | undefined {
+  if (node.name !== undefined) return declaredName(node.name);
+  // Arrow functions and function expressions borrow the name they are assigned to.
+  const parent: ts.Node | undefined = node.parent;
+  if (parent !== undefined && ts.isVariableDeclaration(parent)) return declaredName(parent.name);
+  return undefined;
+}
+
+function typeReferenceName(type: ts.TypeNode | undefined): string | undefined {
+  if (type === undefined || !ts.isTypeReferenceNode(type)) return undefined;
+  return ts.isIdentifier(type.typeName) ? type.typeName.text : undefined;
 }
 
 function collectFromNewExpression(node: ts.NewExpression, out: FindingDraft[]): void {
@@ -283,7 +442,7 @@ function collectFromFormBuilderCall(
 
   const method = declaredName(callee.name);
   if (method !== 'group' && method !== 'control') return;
-  if (!isFormBuilderReceiver(callee.expression, formBuilderNames)) return;
+  if (!isKnownReceiver(callee.expression, formBuilderNames)) return;
 
   if (method === 'control') {
     out.push({
@@ -325,15 +484,15 @@ function containsNestedFormBuilderCollection(node: ts.CallExpression): boolean {
   return found;
 }
 
-/** Matches both `fb.group(...)` and `this.fb.group(...)`. */
-function isFormBuilderReceiver(receiver: ts.Node, formBuilderNames: ReadonlySet<string>): boolean {
-  if (ts.isIdentifier(receiver)) return formBuilderNames.has(receiver.text);
+/** Matches a bound name used bare (`fb.group()`) or through this (`this.fb.group()`). */
+function isKnownReceiver(receiver: ts.Node, names: ReadonlySet<string>): boolean {
+  if (ts.isIdentifier(receiver)) return names.has(receiver.text);
   if (
     ts.isPropertyAccessExpression(receiver) &&
     receiver.expression.kind === ts.SyntaxKind.ThisKeyword
   ) {
     const name = declaredName(receiver.name);
-    return name !== undefined && formBuilderNames.has(name);
+    return name !== undefined && names.has(name);
   }
   return false;
 }
@@ -370,14 +529,35 @@ function collectFromPropertyAccess(node: ts.PropertyAccessExpression, out: Findi
 
 function collectFromTypeReference(node: ts.TypeReferenceNode, out: FindingDraft[]): void {
   if (!ts.isIdentifier(node.typeName)) return;
-  if (node.typeName.text !== 'ValidatorFn') return;
+  const typeName = node.typeName.text;
+
+  if (typeName === 'ValidatorFn') {
+    out.push({
+      construct: 'customValidator',
+      node,
+      classification: 'judgment',
+      reason:
+        'A custom ValidatorFn must be rewritten against the Signal Forms validation API; ' +
+        'the control argument and the error shape both change.',
+    });
+    return;
+  }
+
+  // A form is very often only ever *declared* by its type (`loginForm: FormGroup;`) and
+  // built later through FormBuilder, so type position is real usage, not a duplicate.
+  if (!REPORTED_CONTROL_TYPES.has(typeName)) return;
+
+  // Parameter position means a function signature — a validator or helper receiving a
+  // control, not a form declaration. Those are reported as customValidator instead.
+  if (node.parent !== undefined && ts.isParameter(node.parent)) return;
+
   out.push({
-    construct: 'customValidator',
+    construct: typeName,
     node,
-    classification: 'judgment',
+    classification: 'mechanical',
     reason:
-      'A custom ValidatorFn must be rewritten against the Signal Forms validation API; ' +
-      'the control argument and the error shape both change.',
+      `The ${typeName} type annotation disappears: the field tree returned by form() is ` +
+      'typed from the model signal, so the declared type is inferred rather than written.',
   });
 }
 

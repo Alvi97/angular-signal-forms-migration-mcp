@@ -519,6 +519,55 @@ readonly f = form(this.model, (path) => {
     },
   ],
   [
+    'AbstractControl.get',
+    {
+      construct: 'AbstractControl.get',
+      description:
+        'form.get("email") becomes dot notation on the field tree: f.email. The field tree ' +
+        'mirrors the model’s shape, so nested groups are reached by chaining, and the result ' +
+        'is typed instead of being a possibly-null AbstractControl.',
+      before: `import { FormGroup } from '@angular/forms';
+
+readonly profileForm: FormGroup;
+
+get firstName() {
+  return this.profileForm.get('firstName') as FormControl;
+}
+
+get street() {
+  return this.profileForm.get('address.street');
+}`,
+      after: `import { form } from '@angular/forms/signals';
+
+readonly model = signal({
+  firstName: '',
+  address: { street: '' },
+});
+readonly f = form(this.model);
+
+// No accessor needed — bind the field directly in the template:
+//   <input [formField]="f.firstName" />
+//   <input [formField]="f.address.street" />
+
+// In code, reach fields by dot notation and read state by calling them:
+//   this.f.firstName().value()
+//   this.f.address.street().invalid()`,
+      caveats: [
+        STABILITY,
+        MODEL_FIRST,
+        'The dotted string path `get("address.street")` becomes real property access: ' +
+          '`f.address.street`. There is no string-path lookup on the field tree.',
+        'The `as FormControl` cast that usually follows `.get()` is deleted — the field tree ' +
+          'is typed from the model, so no assertion is needed.',
+        'Getters that existed only to feed the template are usually removable: bind ' +
+          '`[formField]="f.firstName"` instead of exposing an accessor.',
+        'A COMPUTED key (`form.get(someVariable)`) has no mechanical rewrite. The field tree ' +
+          'is a typed object, not a string-keyed map, so the surrounding code must be ' +
+          'redesigned — that is why the detector classifies it as judgment.',
+      ],
+    },
+  ],
+  [
     'customValidator',
     {
       construct: 'customValidator',
@@ -594,6 +643,10 @@ const ALIASES: ReadonlyMap<string, string> = new Map([
   ['maxlength', 'Validators.maxLength'],
   ['pattern', 'Validators.pattern'],
   ['compose', 'Validators.compose'],
+  ['get', 'AbstractControl.get'],
+  ['.get', 'AbstractControl.get'],
+  ['abstractcontrol.get', 'AbstractControl.get'],
+  ['formgroup.get', 'AbstractControl.get'],
   ['customvalidator', 'customValidator'],
   ['validatorfn', 'customValidator'],
   ['custom validator', 'customValidator'],

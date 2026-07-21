@@ -56,6 +56,7 @@ export const M1_CONSTRUCTS = [
   'Validators.pattern',
   'Validators.compose',
   'customValidator',
+  'AbstractControl.get',
   'valueChanges',
   'statusChanges',
 ] as const;
