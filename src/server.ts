@@ -19,6 +19,7 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
 import {
   detectAngularVersion,
+  findAngularManifest,
   MIN_SIGNAL_FORMS_VERSION,
   signalFormsAvailable,
 } from './core/angular-version.js';
@@ -26,6 +27,7 @@ import { analyzeMigrationComplexity } from './core/complexity.js';
 import { findFormCandidates } from './core/detect.js';
 import { getSignalFormsRecipe } from './core/recipes.js';
 import { buildMigrationReport } from './core/report.js';
+import { detectCompanions, inferUpgradeOptions } from './core/companions.js';
 import { buildUpgradePlan, validateUpgradeRange } from './core/upgrade.js';
 import { buildUpgradeReport } from './core/upgrade-report.js';
 import {
@@ -299,14 +301,29 @@ export function createServer(): McpServer {
       const invalid = validateUpgradeRange(from, to);
       if (invalid !== undefined) return errorResult(invalid);
 
+      // Read the manifest rather than asking the caller what is in it. Explicit
+      // arguments still win — inference is a default, not an override.
+      const manifest = findAngularManifest(toAbsolute(path), nodeFileSystem);
+      const inferred = inferUpgradeOptions(manifest);
+
       const plan = buildUpgradePlan(from, to, {
         level: level ?? 3,
-        ngUpgrade: ngUpgrade ?? false,
-        material: material ?? false,
+        ngUpgrade: ngUpgrade ?? inferred.ngUpgrade,
+        material: material ?? inferred.material,
+        // Only the caller knows their OS; the manifest cannot say.
         windows: windows ?? false,
       });
 
-      const markdown = buildUpgradeReport(plan, to >= MIN_SIGNAL_FORMS_VERSION);
+      const inferredOptions = [
+        ...(material === undefined ? ['material'] : []),
+        ...(ngUpgrade === undefined ? ['ngUpgrade'] : []),
+      ];
+      const markdown = buildUpgradeReport(
+        plan,
+        to >= MIN_SIGNAL_FORMS_VERSION,
+        detectCompanions(manifest),
+        inferredOptions,
+      );
       return {
         content: [{ type: 'text', text: markdown }],
         structuredContent: { markdown },

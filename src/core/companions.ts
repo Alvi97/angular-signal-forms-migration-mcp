@@ -1,0 +1,168 @@
+/**
+ * Packages that constrain an Angular upgrade — pure.
+ *
+ * Angular's update guide models Angular. Real workspaces are gated by things it never
+ * mentions: an Nx workspace cannot outrun Nx's own Angular support, and a custom webpack
+ * builder collides with v22 deprecating webpack builders. A reader hit both, and the plan
+ * was silent on both.
+ *
+ * Nothing here invents a compatibility matrix. It reports what is installed, why it is
+ * coupled to Angular, and where the authoritative answer lives.
+ */
+
+export type CompanionCategory =
+  /** Versioned with Angular itself; `ng update` normally carries it along. */
+  | 'release-train'
+  /** Build tooling the target version changes or deprecates. */
+  | 'build-tooling'
+  /** Outside Angular's guidance entirely; has its own compatibility matrix. */
+  | 'external';
+
+export interface Companion {
+  readonly name: string;
+  readonly installed: string;
+  readonly category: CompanionCategory;
+  readonly note: string;
+}
+
+interface CompanionRule {
+  readonly match: RegExp;
+  readonly category: CompanionCategory;
+  readonly note: string;
+}
+
+const RULES: readonly CompanionRule[] = [
+  {
+    match: /^nx$|^@nx\//,
+    category: 'external',
+    note:
+      'Nx pins which Angular versions it supports, and Angular’s update guide does not ' +
+      'cover it. Nx must be upgraded in lockstep — check its own compatibility matrix and ' +
+      'run `nx migrate` alongside each Angular hop.',
+  },
+  {
+    match: /^@angular\/(material|cdk)$/,
+    category: 'release-train',
+    note:
+      'Ships on the same release train as Angular and must move to the same major. ' +
+      '`ng update` normally handles it; verify it did.',
+  },
+  {
+    match: /^@angular\/(ssr|animations|platform-server|upgrade|elements|service-worker)$/,
+    category: 'release-train',
+    note: 'Part of the Angular release train — same major as @angular/core.',
+  },
+  {
+    match: /^@angular-builders\//,
+    category: 'build-tooling',
+    note:
+      'A third-party builder wrapping the Angular build. It tracks Angular majors on its ' +
+      'own schedule, and Angular v22 deprecates webpack builders in favour of ' +
+      '`@angular/build` — check the builder supports your target before starting.',
+  },
+  {
+    match: /^@angular-devkit\/build-angular$/,
+    category: 'build-tooling',
+    note:
+      'The webpack-based builder. Angular v22 deprecates it in favour of `@angular/build` ' +
+      '(esbuild/application). Deprecated, not removed — but plan the move.',
+  },
+  {
+    match: /^zone\.js$/,
+    category: 'release-train',
+    note: 'Version is tied to the Angular major; `ng update` adjusts it.',
+  },
+];
+
+/** All dependency sections of a package.json, tolerant of anything malformed. */
+function allDependencies(manifest: unknown): Record<string, string> {
+  const merged: Record<string, string> = {};
+  if (typeof manifest !== 'object' || manifest === null) return merged;
+
+  for (const section of ['dependencies', 'devDependencies', 'peerDependencies']) {
+    const deps = (manifest as Record<string, unknown>)[section];
+    if (typeof deps !== 'object' || deps === null || Array.isArray(deps)) continue;
+    for (const [name, range] of Object.entries(deps as Record<string, unknown>)) {
+      if (typeof range === 'string') merged[name] = range;
+    }
+  }
+  return merged;
+}
+
+export function detectCompanions(manifest: unknown): Companion[] {
+  const deps = allDependencies(manifest);
+  const found: Companion[] = [];
+
+  for (const [name, installed] of Object.entries(deps)) {
+    const rule = RULES.find((candidate) => candidate.match.test(name));
+    if (rule === undefined) continue;
+    found.push({ name, installed, category: rule.category, note: rule.note });
+  }
+
+  // Group by category, then alphabetically, so the output is stable and readable.
+  const order: Record<CompanionCategory, number> = {
+    external: 0,
+    'build-tooling': 1,
+    'release-train': 2,
+  };
+  return found.sort(
+    (a, b) => order[a.category] - order[b.category] || a.name.localeCompare(b.name),
+  );
+}
+
+/**
+ * Answers the update guide's optional-dependency questions from the manifest.
+ *
+ * A reader was asked whether they use Angular Material when the answer was sitting in
+ * their package.json. Asking for information you already hold is a small insult and a
+ * chance to get it wrong.
+ */
+export function inferUpgradeOptions(manifest: unknown): {
+  material: boolean;
+  ngUpgrade: boolean;
+} {
+  const deps = allDependencies(manifest);
+  return {
+    material: '@angular/material' in deps,
+    ngUpgrade: '@angular/upgrade' in deps,
+  };
+}
+
+export interface CompanionGroup {
+  readonly category: CompanionCategory;
+  readonly note: string;
+  /** Every installed package sharing this advice, with its range. */
+  readonly names: string[];
+  readonly ranges: Record<string, string>;
+}
+
+/**
+ * Collapses packages that share advice into one entry.
+ *
+ * An Nx workspace installs a dozen @nx/* packages with identical guidance; printing that
+ * note a dozen times buries the entries that actually differ.
+ */
+export function groupCompanions(companions: readonly Companion[]): CompanionGroup[] {
+  const groups = new Map<string, CompanionGroup>();
+
+  for (const companion of companions) {
+    const key = `${companion.category}::${companion.note}`;
+    const existing = groups.get(key);
+    if (existing === undefined) {
+      groups.set(key, {
+        category: companion.category,
+        note: companion.note,
+        names: [companion.name],
+        ranges: { [companion.name]: companion.installed },
+      });
+      continue;
+    }
+    existing.names.push(companion.name);
+    existing.ranges[companion.name] = companion.installed;
+  }
+
+  return [...groups.values()].map((group) => ({
+    ...group,
+    names: [...group.names].sort((a, b) => a.localeCompare(b)),
+  }));
+}

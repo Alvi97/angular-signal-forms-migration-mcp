@@ -6,6 +6,7 @@
  * output can be checked against the source it came from.
  */
 import { MIN_SIGNAL_FORMS_VERSION } from './angular-version.js';
+import { groupCompanions, type Companion } from './companions.js';
 import type { UpgradePlan } from './upgrade.js';
 
 const LEVEL_NAMES: Readonly<Record<number, string>> = {
@@ -14,7 +15,60 @@ const LEVEL_NAMES: Readonly<Record<number, string>> = {
   3: 'Advanced',
 };
 
-export function buildUpgradeReport(plan: UpgradePlan, signalFormsGoal: boolean): string {
+const CATEGORY_TITLES: Readonly<Record<Companion['category'], string>> = {
+  external: 'Outside Angular’s guidance — must be planned separately',
+  'build-tooling': 'Build tooling affected by the target version',
+  'release-train': 'Moves with Angular (ng update normally handles these)',
+};
+
+/**
+ * Packages that gate the upgrade but appear nowhere in Angular's own steps.
+ *
+ * A reader following the plan hit two of these — Nx pinning Angular support, and a custom
+ * webpack builder against v22's deprecation — and had to work them out themselves.
+ */
+function companionLines(companions: readonly Companion[]): string[] {
+  if (companions.length === 0) return [];
+
+  const lines = ['## Other packages that constrain this upgrade', ''];
+  lines.push(
+    'Angular’s update guide models Angular. These are installed here, are coupled to the ' +
+      'Angular version, and are **not** covered by the steps below:',
+  );
+  lines.push('');
+
+  let current: Companion['category'] | undefined;
+  for (const group of groupCompanions(companions)) {
+    if (group.category !== current) {
+      current = group.category;
+      lines.push(`**${CATEGORY_TITLES[current]}**`);
+      lines.push('');
+    }
+
+    // One bullet per piece of advice, listing every package it applies to — an Nx
+    // workspace installs a dozen packages that all say the same thing.
+    const shown = group.names.slice(0, 4).map((n) => `\`${n}\``);
+    const extra = group.names.length - shown.length;
+    const named = extra > 0 ? `${shown.join(', ')} +${String(extra)} more` : shown.join(', ');
+    const range = group.ranges[group.names[0] ?? ''] ?? '';
+
+    lines.push(
+      `- ${named}${group.names.length > 1 ? ` (${String(group.names.length)} packages, ${range})` : ` (${range})`}`,
+    );
+    lines.push(`  - ${group.note}`);
+    lines.push('');
+  }
+
+  return lines;
+}
+
+export function buildUpgradeReport(
+  plan: UpgradePlan,
+  signalFormsGoal: boolean,
+  companions: readonly Companion[] = [],
+  /** Options answered from package.json rather than by the caller. */
+  inferred: readonly string[] = [],
+): string {
   const lines: string[] = [];
   const level = LEVEL_NAMES[plan.level] ?? String(plan.level);
 
@@ -74,6 +128,8 @@ export function buildUpgradeReport(plan: UpgradePlan, signalFormsGoal: boolean):
     lines.push('');
   }
 
+  lines.push(...companionLines(companions));
+
   /* ---- What the answers did ------------------------------------------------ */
 
   const answered = (['ngUpgrade', 'material', 'windows'] as const).map((option) => {
@@ -81,11 +137,15 @@ export function buildUpgradeReport(plan: UpgradePlan, signalFormsGoal: boolean):
     if (impact.applicable === 0) {
       return `- \`${option}\` — cannot affect this version range; your answer changes nothing.`;
     }
+    // Say where the answer came from. Claiming "you said" for something read out of
+    // package.json misrepresents both its source and its reliability.
+    const said = inferred.includes(option) ? 'detected from package.json' : 'you answered';
+
     if (impact.includedByAnswer > 0) {
-      return `- \`${option}\` — you said **yes**, so ${String(impact.includedByAnswer)} step(s) are INCLUDED below.`;
+      return `- \`${option}\` — **yes** (${said}), so ${String(impact.includedByAnswer)} step(s) are INCLUDED below.`;
     }
     if (impact.excludedByAnswer > 0) {
-      return `- \`${option}\` — you said **no**, so ${String(impact.excludedByAnswer)} step(s) were EXCLUDED. Re-run with \`${option}: true\` if that is wrong.`;
+      return `- \`${option}\` — **no** (${said}), so ${String(impact.excludedByAnswer)} step(s) were EXCLUDED. Pass \`${option}: true\` if that is wrong.`;
     }
     return `- \`${option}\` — no applicable steps at this complexity level.`;
   });

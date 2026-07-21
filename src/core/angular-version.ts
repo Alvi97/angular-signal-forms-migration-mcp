@@ -85,6 +85,21 @@ function ancestors(startPath: string, fs: FileSystemPort): string[] {
   return chain;
 }
 
+/**
+ * The nearest package.json declaring @angular/core, walking up from `startPath`.
+ *
+ * Shared with companion detection so both read the SAME manifest — reading a different
+ * one would let the version and the dependency list disagree.
+ */
+export function findAngularManifest(startPath: string, fs: FileSystemPort): unknown {
+  for (const dir of ancestors(startPath, fs)) {
+    const pkg = readJson(`${dir}/package.json`, fs);
+    if (pkg === undefined) continue;
+    if (dependencyRange(pkg, '@angular/core') !== undefined) return pkg;
+  }
+  return undefined;
+}
+
 export function detectAngularVersion(startPath: string, fs: FileSystemPort): AngularVersion {
   let sawPackageJson = false;
 
