@@ -10,6 +10,9 @@
  * Both tools are advertised `readOnlyHint: true`. This server DETECTS and ADVISES;
  * it never writes to the user's source files.
  */
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
@@ -33,8 +36,26 @@ import {
 } from './core/types.js';
 import { nodeFileSystem, toAbsolute } from './infra/node-fs.js';
 
-const SERVER_NAME = 'signal-forms-migration-mcp';
-const SERVER_VERSION = '0.1.0';
+/**
+ * Identity announced in the MCP handshake, read from package.json rather than hardcoded.
+ *
+ * These were literal strings until 0.1.1 shipped still calling itself
+ * "signal-forms-migration-mcp 0.1.0" — the pre-rename package name and a stale version.
+ * A server that misreports its own build makes every "which version am I running?"
+ * question unanswerable.
+ */
+const packageJson: unknown = JSON.parse(
+  readFileSync(fileURLToPath(new URL('../package.json', import.meta.url)), 'utf8'),
+);
+
+function packageField(name: string, fallback: string): string {
+  if (typeof packageJson !== 'object' || packageJson === null) return fallback;
+  const value = (packageJson as Record<string, unknown>)[name];
+  return typeof value === 'string' ? value : fallback;
+}
+
+export const SERVER_NAME = packageField('name', 'angular-signal-forms-migration-mcp');
+export const SERVER_VERSION = packageField('version', '0.0.0');
 
 /** stdout is the MCP stdio channel and must stay clean — diagnostics go to stderr. */
 function logToStderr(message: string): void {
