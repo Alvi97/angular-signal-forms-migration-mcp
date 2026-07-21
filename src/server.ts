@@ -205,7 +205,48 @@ export function createServer(): McpServer {
   return server;
 }
 
+/** What the process should do, decided from argv. Pure, so it is unit-testable. */
+export type CliAction = 'version' | 'help' | 'serve';
+
+export function resolveCliAction(argv: readonly string[]): CliAction {
+  if (argv.some((arg) => arg === '--version' || arg === '-v' || arg === '-V')) return 'version';
+  if (argv.some((arg) => arg === '--help' || arg === '-h')) return 'help';
+  // Unknown flags are ignored rather than fatal: an MCP client may pass through
+  // arguments we do not recognise, and refusing to start would be the worse failure.
+  return 'serve';
+}
+
+const USAGE = `${SERVER_NAME} v${SERVER_VERSION}
+
+An MCP server that finds Angular Reactive Forms and advises on migrating them to
+Signal Forms. It detects and advises only — it never edits your code.
+
+Usage:
+  ${SERVER_NAME}            Start the MCP server on stdio (what an MCP client does).
+  ${SERVER_NAME} --version  Print the version.
+  ${SERVER_NAME} --help     Show this message.
+
+Add it to Claude Code:
+  claude mcp add signal-forms-migration -- npx -y ${SERVER_NAME}@latest
+
+Tools: find_form_candidates, get_signalforms_recipe, analyze_migration_complexity,
+get_migration_report.
+
+Docs: https://github.com/Alvi97/angular-signal-forms-migration-mcp`;
+
 async function main(): Promise<void> {
+  const action = resolveCliAction(process.argv.slice(2));
+
+  // These are CLI invocations, not protocol sessions, so stdout is the right channel.
+  if (action === 'version') {
+    process.stdout.write(`${SERVER_VERSION}\n`);
+    return;
+  }
+  if (action === 'help') {
+    process.stdout.write(`${USAGE}\n`);
+    return;
+  }
+
   const server = createServer();
   await server.connect(new StdioServerTransport());
   logToStderr(`v${SERVER_VERSION} ready on stdio`);

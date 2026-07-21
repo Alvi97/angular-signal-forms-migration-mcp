@@ -23,3 +23,29 @@ describe('server identity', () => {
     expect(SERVER_VERSION).toBe(field('version'));
   });
 });
+
+import { resolveCliAction } from '../src/server.js';
+
+/**
+ * `-v` is the first thing anyone types at a binary. It used to start a stdio server and
+ * sit there silently, which reads as a hang.
+ */
+describe('command line flags', () => {
+  it.each([['--version'], ['-v'], ['-V']])('%s reports the version', (flag) => {
+    expect(resolveCliAction([flag])).toBe('version');
+  });
+
+  it.each([['--help'], ['-h']])('%s shows usage', (flag) => {
+    expect(resolveCliAction([flag])).toBe('help');
+  });
+
+  it('serves when given no arguments — the MCP client case', () => {
+    expect(resolveCliAction([])).toBe('serve');
+  });
+
+  it('serves on unrecognised arguments rather than refusing to start', () => {
+    // An MCP client may pass through arguments we do not know about; failing to start
+    // would be a worse outcome than ignoring them.
+    expect(resolveCliAction(['--transport=stdio'])).toBe('serve');
+  });
+});

@@ -136,6 +136,18 @@ claude mcp add signal-forms-migration -- node "$PWD/dist/server.js"
 
 The transport is stdio, so stdout is reserved for the protocol; all logging goes to stderr.
 
+**Do not `npm install` this into your Angular app.** It is a standalone process your
+editor spawns, not a library your project depends on — installing it adds a dev tool to
+your production dependencies. Use `npx` (above), which keeps it in a cache outside your
+project entirely.
+
+Pin `@latest` as shown so `npx` re-resolves on each launch; without it, npx will keep
+serving whichever version it cached first. To check what is actually running:
+
+```bash
+npx angular-signal-forms-migration-mcp --version
+```
+
 ## Tools
 
 ### `find_form_candidates`
