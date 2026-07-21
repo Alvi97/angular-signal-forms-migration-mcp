@@ -1,0 +1,58 @@
+import { describe, expect, it } from 'vitest';
+import { assessCoverage } from '../src/core/coverage.js';
+import { memoryFs } from './helpers/memory-fs.js';
+
+/**
+ * Three separate live sessions independently flagged that the files being rewritten have
+ * no covering tests — "my verification signal is the compiler, not the tests". That is a
+ * first-class migration risk and the report never mentioned it.
+ */
+describe('assessCoverage', () => {
+  const fs = memoryFs({
+    '/repo/a.component.ts': 'x',
+    '/repo/a.component.spec.ts': 'describe("a", () => { it("works", () => {}); });',
+    '/repo/b.component.ts': 'x',
+    '/repo/c.component.ts': 'x',
+    '/repo/c.component.spec.ts': '',
+    '/repo/d.component.ts': 'x',
+    '/repo/d.component.spec.ts': '   \n  ',
+  });
+
+  it('recognises a real spec as covering', () => {
+    expect(assessCoverage(['/repo/a.component.ts'], fs).covered).toEqual(['/repo/a.component.ts']);
+  });
+
+  it('reports a missing spec', () => {
+    expect(assessCoverage(['/repo/b.component.ts'], fs).uncovered).toEqual([
+      '/repo/b.component.ts',
+    ]);
+  });
+
+  it('treats a zero-byte spec as worse than none — it looks like coverage', () => {
+    // Exactly what bit a live upgrade: empty jest config and setup files that read as
+    // present until the suites failed to parse.
+    const result = assessCoverage(['/repo/c.component.ts'], fs);
+    expect(result.emptySpec).toEqual(['/repo/c.component.ts']);
+    expect(result.covered).toEqual([]);
+  });
+
+  it('treats a whitespace-only spec the same way', () => {
+    expect(assessCoverage(['/repo/d.component.ts'], fs).emptySpec).toEqual([
+      '/repo/d.component.ts',
+    ]);
+  });
+
+  it('summarises how much of the migration is unprotected', () => {
+    const result = assessCoverage(
+      ['/repo/a.component.ts', '/repo/b.component.ts', '/repo/c.component.ts'],
+      fs,
+    );
+    expect(result.total).toBe(3);
+    expect(result.unprotected).toBe(2);
+  });
+
+  it('never throws on an unreadable path', () => {
+    expect(() => assessCoverage(['/nope/x.ts'], fs)).not.toThrow();
+    expect(assessCoverage(['/nope/x.ts'], fs).uncovered).toEqual(['/nope/x.ts']);
+  });
+});

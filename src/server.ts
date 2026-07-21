@@ -26,6 +26,7 @@ import {
 import { analyzeMigrationComplexity } from './core/complexity.js';
 import { findFormCandidates } from './core/detect.js';
 import { getSignalFormsRecipe } from './core/recipes.js';
+import { assessCoverage } from './core/coverage.js';
 import { buildMigrationReport } from './core/report.js';
 import {
   declaredDependencyNames,
@@ -260,10 +261,15 @@ export function createServer(): McpServer {
       const result = findFormCandidates(absolute, nodeFileSystem);
       if (!result.ok) return errorResult(result.error);
 
+      const withFindings = result.data.filter((entry) => entry.findings.length > 0);
       const markdown = buildMigrationReport(
         absolute,
         result.data,
         detectAngularVersion(absolute, nodeFileSystem),
+        assessCoverage(
+          withFindings.map((entry) => entry.file),
+          nodeFileSystem,
+        ),
       );
       return {
         // The markdown IS the payload here, so it goes in content as-is rather than

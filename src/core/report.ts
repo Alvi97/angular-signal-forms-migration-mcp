@@ -10,6 +10,7 @@ import { analyzeMigrationComplexity } from './complexity.js';
 import { getSignalFormsRecipe } from './recipes.js';
 import { VERIFIED_ANGULAR_VERSION } from './version.js';
 import type { AngularVersion } from './angular-version.js';
+import type { CoverageReport } from './coverage.js';
 import type { FileFindings, Finding } from './types.js';
 
 /** How many judgment findings to spell out per file before summarising the rest. */
@@ -192,10 +193,56 @@ function versionResolutionLines(version: AngularVersion): string[] {
   ];
 }
 
+/**
+ * What is verifying the rewrite.
+ *
+ * Not a blocker, but it changes the sequencing: an all-mechanical file with no test is a
+ * different risk from an all-mechanical file with one, and only the operator can decide
+ * whether to write tests first.
+ */
+function coverageLines(
+  coverage: CoverageReport | undefined,
+  root: string,
+  byPath: ReadonlyMap<string, FileFindings>,
+): string[] {
+  if (coverage === undefined || coverage.unprotected === 0) return [];
+
+  const lines = ['## What is verifying this migration', ''];
+  const percent = Math.round((coverage.unprotected / Math.max(coverage.total, 1)) * 100);
+  lines.push(
+    `**${String(coverage.unprotected)} of ${String(coverage.total)} files (${String(percent)}%) ` +
+      'to be rewritten have no working test.** The compiler will catch shape errors; it will ' +
+      'not catch a validator that stopped firing or a field that stopped binding. Consider ' +
+      'writing characterisation tests for the highest-finding files before changing them.',
+  );
+  lines.push('');
+
+  const withCounts = (file: string): string => {
+    const entry = byPath.get(file);
+    const count = entry === undefined ? '' : ` — ${String(entry.findings.length)} findings`;
+    return `- \`${shortPath(file, root)}\`${count}`;
+  };
+
+  if (coverage.emptySpec.length > 0) {
+    lines.push('**Spec file exists but is empty** — reads as coverage, provides none:');
+    lines.push('');
+    for (const file of coverage.emptySpec) lines.push(withCounts(file));
+    lines.push('');
+  }
+  if (coverage.uncovered.length > 0) {
+    lines.push('**No spec file:**');
+    lines.push('');
+    for (const file of coverage.uncovered) lines.push(withCounts(file));
+    lines.push('');
+  }
+  return lines;
+}
+
 export function buildMigrationReport(
   root: string,
   files: readonly FileFindings[],
   version: AngularVersion = { known: false, reason: 'No version was supplied to the report.' },
+  coverage?: CoverageReport,
 ): string {
   const complexity = analyzeMigrationComplexity(files);
   const withFindings = files.filter((entry) => entry.findings.length > 0);
@@ -366,6 +413,8 @@ export function buildMigrationReport(
     }
     lines.push('');
   }
+
+  lines.push(...coverageLines(coverage, root, byPath));
 
   /* ---- Judgment detail --------------------------------------------------- */
 
