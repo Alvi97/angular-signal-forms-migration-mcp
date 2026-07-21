@@ -40,3 +40,32 @@ export const nodeFileSystem: FileSystemPort = {
 export function toAbsolute(path: string): string {
   return resolve(path);
 }
+
+/**
+ * Reads an installed package's version and its `@angular/core` peer range.
+ *
+ * Returns undefined when the package is not installed, which is the normal state during
+ * an upgrade — callers must distinguish "not installed" from "no Angular peer".
+ */
+export function readInstalledPeer(
+  workspaceDir: string,
+  name: string,
+): { version: string; peer: string | undefined } | undefined {
+  try {
+    const manifestPath = join(workspaceDir, 'node_modules', name, 'package.json');
+    const parsed: unknown = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    if (typeof parsed !== 'object' || parsed === null) return undefined;
+
+    const record = parsed as Record<string, unknown>;
+    const version = typeof record['version'] === 'string' ? record['version'] : 'unknown';
+    const peers = record['peerDependencies'];
+    const peer =
+      typeof peers === 'object' && peers !== null
+        ? (peers as Record<string, unknown>)['@angular/core']
+        : undefined;
+
+    return { version, peer: typeof peer === 'string' ? peer : undefined };
+  } catch {
+    return undefined;
+  }
+}

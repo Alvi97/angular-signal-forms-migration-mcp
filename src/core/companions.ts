@@ -89,6 +89,11 @@ function allDependencies(manifest: unknown): Record<string, string> {
   return merged;
 }
 
+/** Every dependency name declared in the manifest, across all sections. */
+export function declaredDependencyNames(manifest: unknown): string[] {
+  return Object.keys(allDependencies(manifest)).sort((a, b) => a.localeCompare(b));
+}
+
 export function detectCompanions(manifest: unknown): Companion[] {
   const deps = allDependencies(manifest);
   const found: Companion[] = [];

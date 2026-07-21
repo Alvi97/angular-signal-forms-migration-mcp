@@ -27,7 +27,11 @@ import { analyzeMigrationComplexity } from './core/complexity.js';
 import { findFormCandidates } from './core/detect.js';
 import { getSignalFormsRecipe } from './core/recipes.js';
 import { buildMigrationReport } from './core/report.js';
-import { detectCompanions, inferUpgradeOptions } from './core/companions.js';
+import {
+  declaredDependencyNames,
+  detectCompanions,
+  inferUpgradeOptions,
+} from './core/companions.js';
 import { buildUpgradePlan, validateUpgradeRange } from './core/upgrade.js';
 import { buildUpgradeReport } from './core/upgrade-report.js';
 import {
@@ -45,7 +49,8 @@ import {
   type GetSignalFormsRecipeOutput,
 } from './core/types.js';
 import { VERIFIED_ANGULAR_VERSION } from './core/version.js';
-import { nodeFileSystem, toAbsolute } from './infra/node-fs.js';
+import { findPeerBlockers } from './core/peer-blockers.js';
+import { nodeFileSystem, readInstalledPeer, toAbsolute } from './infra/node-fs.js';
 import { checkForUpdate } from './infra/update-notifier.js';
 
 /**
@@ -314,6 +319,14 @@ export function createServer(): McpServer {
         windows: windows ?? false,
       });
 
+      // Where the manifest lives is where node_modules lives.
+      const manifestDir = detected.known
+        ? detected.from.replace(/\/(node_modules\/@angular\/core\/)?package\.json$/, '')
+        : toAbsolute(path);
+      const declared = declaredDependencyNames(manifest);
+      const peers = findPeerBlockers(declared, to, (name) => readInstalledPeer(manifestDir, name));
+      const isNxWorkspace = declared.some((n) => n === 'nx' || n.startsWith('@nx/'));
+
       const inferredOptions = [
         ...(material === undefined ? ['material'] : []),
         ...(ngUpgrade === undefined ? ['ngUpgrade'] : []),
@@ -323,6 +336,7 @@ export function createServer(): McpServer {
         to >= MIN_SIGNAL_FORMS_VERSION,
         detectCompanions(manifest),
         inferredOptions,
+        { isNxWorkspace, peers },
       );
       return {
         content: [{ type: 'text', text: markdown }],
