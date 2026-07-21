@@ -55,6 +55,25 @@ Two access modes are split rather than lumped, mirroring the `.get()` treatment:
 | `.setValue` / `.patchValue` / `.reset` / `.getRawValue` | mechanical | value writes go through the model signal |
 | `markAs*` / `setErrors` / `enable` / `setValidators` | judgment | state is derived from rules; no imperative equivalent |
 
+**M6a** — correctness hardening: version gate + ordering roles. The server now reads the
+TARGET project's Angular version (exact installed version from `node_modules`, falling back
+to the declared range) and opens the report with a **blocking prerequisite** when it is
+below v21, because `@angular/forms/signals` does not exist there. Version-sensitive recipes
+resolve against the detected version instead of handing the agent both variants — including
+the awkward case where the project is on *neither* diverging version.
+
+Files are also classified by role, fixing a real ordering defect:
+
+| Role | Meaning | Ordering |
+| --- | --- | --- |
+| `owner` | constructs a form (`new FormX`, `fb.group/array/control`) | normal |
+| `validators` | owns no form but defines reusable validators | normal, flagged as a shared primitive to decide early |
+| `reference` | only annotations/casts/state reads on another file's form | sorted **last** — cannot be migrated alone |
+
+The `reference` case is the `roles-section-formio` defect: one finding, ranked first, and
+un-migratable in isolation. The `validators` case was a flaw in the first fix — burying a
+shared validator module as "cannot be migrated alone" is worse than not classifying at all.
+
 ### Still deferred
 
 | Item | Target | Note |

@@ -225,6 +225,8 @@ interface FindingDraft {
   node: ts.Node;
   classification: Classification;
   reason: string;
+  /** Set on findings that construct a form. See `Finding.definesForm`. */
+  definesForm?: boolean;
 }
 
 /**
@@ -793,6 +795,7 @@ function collectFromNewExpression(
     out.push({
       construct: 'FormArray',
       node,
+      definesForm: true,
       classification: dynamic ? 'judgment' : 'mechanical',
       reason: dynamic
         ? 'This FormArray is populated or resized at runtime. Signal Forms derives the field ' +
@@ -808,6 +811,7 @@ function collectFromNewExpression(
     out.push({
       construct: 'FormControl',
       node,
+      definesForm: true,
       classification: 'mechanical',
       reason:
         'A standalone FormControl becomes a writable signal holding the value, wrapped by form().',
@@ -820,6 +824,7 @@ function collectFromNewExpression(
     out.push({
       construct: 'FormGroup',
       node,
+      definesForm: true,
       classification: nested ? 'judgment' : 'mechanical',
       reason: nested
         ? 'This FormGroup nests a FormArray or child group; the model shape must be designed by hand.'
@@ -867,6 +872,7 @@ function collectFromFormBuilderCall(
     out.push({
       construct: 'FormBuilder.array',
       node,
+      definesForm: true,
       classification: 'judgment',
       reason:
         'fb.array(...) becomes a plain array in the model signal, with per-item rules applied ' +
@@ -880,6 +886,7 @@ function collectFromFormBuilderCall(
     out.push({
       construct: 'FormBuilder.control',
       node,
+      definesForm: true,
       classification: 'mechanical',
       reason: 'fb.control(...) becomes a plain signal field on the model object.',
     });
@@ -890,6 +897,7 @@ function collectFromFormBuilderCall(
   out.push({
     construct: 'FormBuilder.group',
     node,
+    definesForm: true,
     classification: nested ? 'judgment' : 'mechanical',
     reason: nested
       ? 'This group nests an array or child group; the model shape must be designed by hand.'
@@ -1105,6 +1113,7 @@ function materialise(drafts: FindingDraft[], sourceFile: ts.SourceFile, text: st
 
     const rawSnippet = (lines[position.line] ?? '').trim();
     findings.push({
+      definesForm: draft.definesForm === true,
       construct: draft.construct,
       line,
       snippet:

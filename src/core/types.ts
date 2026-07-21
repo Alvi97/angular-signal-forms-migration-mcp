@@ -133,6 +133,14 @@ export const findingSchema = z.object({
   classification: classificationSchema,
   /** Why it was classified that way — shown to the user, so keep it plain. */
   reason: z.string(),
+  /**
+   * True when this finding CONSTRUCTS a form (`new FormGroup`, `fb.group(...)`) rather than
+   * merely referencing one (a type annotation, a cast, a state read).
+   *
+   * A file with no defining findings cannot be migrated on its own — its form lives
+   * elsewhere — so it must never be offered as a pilot.
+   */
+  definesForm: z.boolean(),
 });
 export type Finding = z.infer<typeof findingSchema>;
 
@@ -206,7 +214,29 @@ export const migrationComplexitySchema = z.object({
    * before any that need judgment, then fewest judgment calls, then smallest.
    */
   suggestedOrder: z.array(z.string()),
+  /**
+   * Files whose findings only REFERENCE a form defined elsewhere. They are sorted last:
+   * migrating one in isolation is impossible, so they are not valid starting points.
+   */
+  referenceOnlyFiles: z.array(z.string()),
+  /**
+   * Files that own no form but DEFINE reusable validators. They migrate fine alone, and
+   * their new error shape gates every consumer — decide their design early.
+   */
+  sharedValidatorFiles: z.array(z.string()),
 });
+
+/** What `analyze_migration_complexity` returns: the analysis plus the version gate. */
+export const analyzeMigrationComplexityOutputSchema = migrationComplexitySchema.extend({
+  /** Detected Angular version of the scanned project, or null if undetermined. */
+  angularVersion: z.string().nullable(),
+  signalFormsAvailable: z.boolean().nullable(),
+  /** Non-null when the project cannot use Signal Forms at all yet. */
+  blockingPrerequisite: z.string().nullable(),
+});
+export type AnalyzeMigrationComplexityOutput = z.infer<
+  typeof analyzeMigrationComplexityOutputSchema
+>;
 export type MigrationComplexity = z.infer<typeof migrationComplexitySchema>;
 
 /* -------------------------------------------------------------------------- */

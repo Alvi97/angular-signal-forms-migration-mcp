@@ -13,6 +13,10 @@ function file(
       line: index + 10,
       snippet: `// ${construct}`,
       classification,
+      // Constructing findings define a form; the rest merely reference one.
+      definesForm: /^(FormControl|FormGroup|FormArray|FormBuilder\.(group|control|array))$/.test(
+        construct,
+      ),
       reason: `reason for ${construct}`,
     })),
   };
@@ -91,5 +95,65 @@ describe('buildMigrationReport', () => {
     const empty = buildMigrationReport('/repo/src/empty', []);
     expect(empty).toContain('No Reactive Forms constructs');
     expect(empty).not.toContain('Suggested order');
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Version gate                                                                */
+/* -------------------------------------------------------------------------- */
+
+import type { AngularVersion } from '../src/core/angular-version.js';
+
+const v = (major: number, raw = `${major}.0.0`): AngularVersion => ({
+  known: true,
+  raw,
+  major,
+  source: 'node_modules',
+  from: '/repo/node_modules/@angular/core/package.json',
+});
+const unknown: AngularVersion = { known: false, reason: 'No package.json was found.' };
+
+describe('blocking prerequisite when Signal Forms is unavailable', () => {
+  it.each([19, 20])('blocks on Angular v%i', (major) => {
+    const report = buildMigrationReport('/repo', MIXED, v(major, `${major}.3.25`));
+
+    // The blocker must come FIRST — a plan rendered above it would be acted on.
+    const blockerAt = report.indexOf('BLOCKING PREREQUISITE');
+    expect(blockerAt).toBeGreaterThan(-1);
+    expect(blockerAt).toBeLessThan(report.indexOf('## Summary'));
+
+    expect(report).toContain(`${major}.3.25`);
+    expect(report).toContain('@angular/forms/signals');
+    expect(report).toMatch(/21\+|v21/);
+  });
+
+  it('still renders the full plan below the blocker — it is the post-upgrade blueprint', () => {
+    const report = buildMigrationReport('/repo', MIXED, v(20));
+    expect(report).toContain('## Summary');
+    expect(report).toContain('## Suggested order');
+    expect(report).toContain('## Constructs found');
+  });
+
+  it.each([21, 22, 23])('does not block on Angular v%i', (major) => {
+    expect(buildMigrationReport('/repo', MIXED, v(major))).not.toContain('BLOCKING PREREQUISITE');
+  });
+
+  it('warns rather than blocks when the version cannot be determined', () => {
+    const report = buildMigrationReport('/repo', MIXED, unknown);
+    expect(report).not.toContain('BLOCKING PREREQUISITE');
+    expect(report).toContain('could not determine');
+  });
+});
+
+describe('version-sensitive recipes resolve against the detected version', () => {
+  it('names the applicable variant when the target is on a covered version', () => {
+    const report = buildMigrationReport('/repo', MIXED, v(22));
+    expect(report).toMatch(/verified against .*v22|matches your Angular/i);
+  });
+
+  it('says so explicitly when the target is on NEITHER diverging version', () => {
+    // Angular 20: the v21-vs-v22 divergence does not describe this project at all.
+    const report = buildMigrationReport('/repo', MIXED, v(20));
+    expect(report).toMatch(/neither/i);
   });
 });

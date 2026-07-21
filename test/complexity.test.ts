@@ -13,6 +13,10 @@ function file(
       line: index + 1,
       snippet: `// ${construct}`,
       classification,
+      // Constructing findings define a form; the rest merely reference one.
+      definesForm: /^(FormControl|FormGroup|FormArray|FormBuilder\.(group|control|array))$/.test(
+        construct,
+      ),
       reason: 'test fixture',
     })),
   };

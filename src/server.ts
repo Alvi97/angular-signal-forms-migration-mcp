@@ -14,6 +14,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
+import { detectAngularVersion, signalFormsAvailable } from './core/angular-version.js';
 import { analyzeMigrationComplexity } from './core/complexity.js';
 import { findFormCandidates } from './core/detect.js';
 import { getSignalFormsRecipe } from './core/recipes.js';
@@ -26,7 +27,7 @@ import {
   getSignalFormsRecipeOutputSchema,
   getMigrationReportInputSchema,
   getMigrationReportOutputSchema,
-  migrationComplexitySchema,
+  analyzeMigrationComplexityOutputSchema,
   type FindFormCandidatesOutput,
   type GetSignalFormsRecipeOutput,
 } from './core/types.js';
@@ -123,13 +124,27 @@ export function createServer(): McpServer {
         'so all-mechanical files land before the ones needing design decisions). ' +
         'Read-only: this tool never modifies your files.',
       inputSchema: analyzeMigrationComplexityInputSchema.shape,
-      outputSchema: migrationComplexitySchema.shape,
+      outputSchema: analyzeMigrationComplexityOutputSchema.shape,
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     },
     ({ path }) => {
-      const result = findFormCandidates(toAbsolute(path), nodeFileSystem);
+      const absolute = toAbsolute(path);
+      const result = findFormCandidates(absolute, nodeFileSystem);
       if (!result.ok) return errorResult(result.error);
-      return jsonResult(analyzeMigrationComplexity(result.data));
+
+      const version = detectAngularVersion(absolute, nodeFileSystem);
+      return jsonResult({
+        ...analyzeMigrationComplexity(result.data),
+        angularVersion: version.known ? version.raw : null,
+        signalFormsAvailable: version.known ? signalFormsAvailable(version.major) : null,
+        // Stated plainly so an agent cannot start a migration that cannot compile.
+        blockingPrerequisite:
+          version.known && !signalFormsAvailable(version.major)
+            ? `@angular/forms/signals does not exist below Angular v21; this project is on ` +
+              `${version.raw}. Upgrade before migrating — the findings below remain valid as ` +
+              `the post-upgrade blueprint.`
+            : null,
+      });
     },
   );
 
@@ -152,7 +167,11 @@ export function createServer(): McpServer {
       const result = findFormCandidates(absolute, nodeFileSystem);
       if (!result.ok) return errorResult(result.error);
 
-      const markdown = buildMigrationReport(absolute, result.data);
+      const markdown = buildMigrationReport(
+        absolute,
+        result.data,
+        detectAngularVersion(absolute, nodeFileSystem),
+      );
       return {
         // The markdown IS the payload here, so it goes in content as-is rather than
         // being JSON-encoded — the agent should be able to read or save it directly.
