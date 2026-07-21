@@ -42,18 +42,42 @@ export interface UpgradePlan {
   readonly after: UpgradeStep[];
   readonly total: number;
   /**
-   * How many steps in this version range each optional dependency can affect.
+   * What each optional-dependency answer actually did to THIS plan.
    *
-   * The guide always asks all three questions; for a modern upgrade most of them change
-   * nothing — Windows-specific steps stop at v9, and ngUpgrade steps at v19. Saying so
-   * saves the caller from agonising over a checkbox that cannot alter the plan.
+   * Reporting only how many steps carry a flag described the data rather than the
+   * caller's answer, so a report kept saying "still relevant, answer accurately" to
+   * someone who had already answered.
    */
-  readonly optionRelevance: Readonly<Record<'ngUpgrade' | 'material' | 'windows', number>>;
+  readonly optionImpact: Readonly<Record<OptionName, OptionImpact>>;
   /** The options above with zero applicable steps, for a plain "this does not matter" note. */
   readonly irrelevantOptions: string[];
+  /**
+   * Steps grouped by the `ng update` hop that makes them necessary.
+   *
+   * The guide returns one flat list for the whole span, which cannot be worked through:
+   * a v22 step is unreachable while you are still on v20.
+   */
+  readonly byMajor: MajorGroup[];
   readonly guideUrl: string;
   readonly coverage: DataCoverage;
   readonly provenance: UpgradeStepData['provenance'];
+}
+
+export type OptionName = 'ngUpgrade' | 'material' | 'windows';
+
+export interface OptionImpact {
+  /** Steps in range that carry this flag at all — 0 means the answer cannot matter. */
+  readonly applicable: number;
+  /** Steps present BECAUSE the answer was yes. */
+  readonly includedByAnswer: number;
+  /** Steps withheld BECAUSE the answer was no. */
+  readonly excludedByAnswer: number;
+}
+
+/** One `ng update` hop: the steps that become necessary at a single major. */
+export interface MajorGroup {
+  readonly major: number;
+  readonly steps: UpgradeStep[];
 }
 
 export interface DataCoverage {
@@ -184,15 +208,65 @@ export function buildUpgradePlan(
   const majorSteps: number[] = [];
   for (let major = fromMajor + 1; major <= toMajor; major++) majorSteps.push(major);
 
-  // Count steps in range that carry each flag at all, regardless of what was selected.
-  const relevance = { ngUpgrade: 0, material: 0, windows: 0 };
+  // What each answer actually did, rather than what the data merely contains.
+  const impact: Record<OptionName, { applicable: number; included: number; excluded: number }> = {
+    ngUpgrade: { applicable: 0, included: 0, excluded: 0 },
+    material: { applicable: 0, included: 0, excluded: 0 },
+    windows: { applicable: 0, included: 0, excluded: 0 },
+  };
+
   for (const step of data.steps) {
     if (step.level > options.level || step.necessaryAsOf <= from) continue;
     if (step.possibleIn > to) continue;
+
     for (const option of FILTERED_OPTIONS) {
-      if (option in step) relevance[option] += 1;
+      const requirement = step[option];
+      if (requirement === undefined) continue;
+      impact[option].applicable += 1;
+
+      // Mirror isSkipped, per option, so the counts explain the plan rather than the file.
+      if (requirement === true) {
+        if (options[option]) impact[option].included += 1;
+        else impact[option].excluded += 1;
+      }
     }
   }
+
+  const optionImpact = {
+    ngUpgrade: {
+      applicable: impact.ngUpgrade.applicable,
+      includedByAnswer: impact.ngUpgrade.included,
+      excludedByAnswer: impact.ngUpgrade.excluded,
+    },
+    material: {
+      applicable: impact.material.applicable,
+      includedByAnswer: impact.material.included,
+      excludedByAnswer: impact.material.excluded,
+    },
+    windows: {
+      applicable: impact.windows.applicable,
+      includedByAnswer: impact.windows.included,
+      excludedByAnswer: impact.windows.excluded,
+    },
+  } as const;
+
+  // Group by the hop each step belongs to, and lead each hop with its toolchain gates:
+  // Angular records steps roughly in the order breaking changes landed, so a Node version
+  // requirement can sit sixteenth while gating the `ng update` at position one.
+  const isToolchain = (step: UpgradeStep): boolean => /node|typescript/i.test(step.step);
+  const groups = new Map<number, UpgradeStep[]>();
+  for (const step of [...before, ...during, ...after]) {
+    const major = Math.ceil(step.necessaryAsOf / 100);
+    const bucket = groups.get(major) ?? [];
+    bucket.push(step);
+    groups.set(major, bucket);
+  }
+  const byMajor: MajorGroup[] = [...groups.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([major, steps]) => ({
+      major,
+      steps: [...steps.filter(isToolchain), ...steps.filter((s) => !isToolchain(s))],
+    }));
 
   return {
     fromMajor,
@@ -203,8 +277,9 @@ export function buildUpgradePlan(
     during,
     after,
     total: before.length + during.length + after.length,
-    optionRelevance: relevance,
-    irrelevantOptions: FILTERED_OPTIONS.filter((option) => relevance[option] === 0),
+    optionImpact,
+    irrelevantOptions: FILTERED_OPTIONS.filter((o) => optionImpact[o].applicable === 0),
+    byMajor,
     guideUrl: updateGuideUrl(fromMajor, toMajor, options.level),
     coverage: dataCoverage(),
     provenance: data.provenance,

@@ -7,26 +7,12 @@
  */
 import { MIN_SIGNAL_FORMS_VERSION } from './angular-version.js';
 import type { UpgradePlan } from './upgrade.js';
-import type { UpgradeStep } from './types.js';
 
 const LEVEL_NAMES: Readonly<Record<number, string>> = {
   1: 'Basic',
   2: 'Medium',
   3: 'Advanced',
 };
-
-function renderSteps(title: string, blurb: string, steps: readonly UpgradeStep[]): string[] {
-  if (steps.length === 0) return [];
-  const lines = [`## ${title} (${String(steps.length)})`, '', blurb, ''];
-  for (const step of steps) {
-    lines.push(`### ${step.step}`);
-    lines.push('');
-    // Angular's own action text, verbatim — markdown and inline HTML as published.
-    lines.push(step.action);
-    lines.push('');
-  }
-  return lines;
-}
 
 export function buildUpgradeReport(plan: UpgradePlan, signalFormsGoal: boolean): string {
   const lines: string[] = [];
@@ -88,57 +74,54 @@ export function buildUpgradeReport(plan: UpgradePlan, signalFormsGoal: boolean):
     lines.push('');
   }
 
-  /* ---- Which questions actually mattered ---------------------------------- */
+  /* ---- What the answers did ------------------------------------------------ */
 
-  if (plan.irrelevantOptions.length > 0) {
-    lines.push('## Options that do not affect this plan');
+  const answered = (['ngUpgrade', 'material', 'windows'] as const).map((option) => {
+    const impact = plan.optionImpact[option];
+    if (impact.applicable === 0) {
+      return `- \`${option}\` — cannot affect this version range; your answer changes nothing.`;
+    }
+    if (impact.includedByAnswer > 0) {
+      return `- \`${option}\` — you said **yes**, so ${String(impact.includedByAnswer)} step(s) are INCLUDED below.`;
+    }
+    if (impact.excludedByAnswer > 0) {
+      return `- \`${option}\` — you said **no**, so ${String(impact.excludedByAnswer)} step(s) were EXCLUDED. Re-run with \`${option}: true\` if that is wrong.`;
+    }
+    return `- \`${option}\` — no applicable steps at this complexity level.`;
+  });
+
+  lines.push('## What your answers changed');
+  lines.push('');
+  lines.push(...answered);
+  lines.push('');
+
+  /* ---- The steps, grouped by hop ------------------------------------------- */
+
+  if (plan.byMajor.length > 1) {
+    lines.push('## Steps, grouped by hop');
     lines.push('');
     lines.push(
-      'The official guide asks about all of these for every upgrade. For **your** version ' +
-        'range these have no applicable steps, so the answer cannot change the plan:',
+      'Each group is one `ng update`. A step only becomes reachable once you are on the ' +
+        'major that requires it, so working the whole span as one flat list does not work. ' +
+        'Within each hop, Node and TypeScript requirements are listed first: they gate the ' +
+        '`ng update` itself, but Angular records steps roughly in the order the breaking ' +
+        'changes landed, not in the order you act on them.',
     );
     lines.push('');
-    for (const option of plan.irrelevantOptions) {
-      lines.push(`- \`${option}\``);
-    }
-    lines.push('');
-    const relevant = (['ngUpgrade', 'material', 'windows'] as const).filter(
-      (option) => plan.optionRelevance[option] > 0,
-    );
-    if (relevant.length > 0) {
-      lines.push(
-        `Still relevant: ${relevant
-          .map((o) => `\`${o}\` (${String(plan.optionRelevance[o])} steps)`)
-          .join(', ')}. Answer those accurately.`,
-      );
-      lines.push('');
-    }
   }
 
-  /* ---- The steps ----------------------------------------------------------- */
-
-  lines.push(
-    ...renderSteps(
-      'Before you update',
-      'You could have done these already; they were not yet mandatory. Do them first — they ' +
-        'reduce what breaks during the update itself.',
-      plan.before,
-    ),
-  );
-  lines.push(
-    ...renderSteps(
-      'During the update',
-      'These become necessary within the version range you are crossing.',
-      plan.during,
-    ),
-  );
-  lines.push(
-    ...renderSteps(
-      'After the update',
-      'Possible once you are on the target version; not required to get there.',
-      plan.after,
-    ),
-  );
+  for (const group of plan.byMajor) {
+    lines.push(`## → v${String(group.major)} (${String(group.steps.length)} steps)`);
+    lines.push('');
+    for (const step of group.steps) {
+      lines.push(`### ${step.step}`);
+      lines.push('');
+      lines.push(step.action);
+      lines.push('');
+    }
+    lines.push(`**Gate:** build and test before moving past v${String(group.major)}.`);
+    lines.push('');
+  }
 
   /* ---- Provenance ---------------------------------------------------------- */
 

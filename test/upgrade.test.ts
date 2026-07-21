@@ -82,9 +82,9 @@ describe('optional dependency flags', () => {
     // so is more useful than letting a user agonise over an inert checkbox.
     const plan = buildUpgradePlan(19, 22, ADVANCED);
 
-    expect(plan.optionRelevance.windows).toBe(0);
-    expect(plan.optionRelevance.ngUpgrade).toBe(0);
-    expect(plan.optionRelevance.material).toBeGreaterThan(0);
+    expect(plan.optionImpact.windows.applicable).toBe(0);
+    expect(plan.optionImpact.ngUpgrade.applicable).toBe(0);
+    expect(plan.optionImpact.material.applicable).toBeGreaterThan(0);
     expect(plan.irrelevantOptions).toEqual(expect.arrayContaining(['windows', 'ngUpgrade']));
     expect(plan.irrelevantOptions).not.toContain('material');
   });
@@ -104,7 +104,7 @@ describe('optional dependency flags', () => {
     const windows = buildUpgradePlan(8, 9, { ...ADVANCED, windows: true });
 
     expect(windows.total).toBe(posix.total);
-    expect(windows.optionRelevance.windows).toBeGreaterThan(0);
+    expect(windows.optionImpact.windows.applicable).toBeGreaterThan(0);
 
     const posixActions = posix.during.map((s) => s.action).join('\n');
     const windowsActions = windows.during.map((s) => s.action).join('\n');
@@ -219,6 +219,81 @@ describe('plans across the whole supported history', () => {
     for (const step of [...plan.before, ...plan.during, ...plan.after]) {
       expect(step.necessaryAsOf).toBeGreaterThan(from * 100);
       expect(step.possibleIn).toBeLessThanOrEqual(to * 100);
+    }
+  });
+});
+
+/**
+ * A reader passed material:false and the report still said "Still relevant: material
+ * (3 steps). Answer those accurately." They had answered. The line described the DATA,
+ * not their answer, so it read as the tool ignoring them.
+ */
+describe('option impact reflects the answer given, not just the data', () => {
+  it('reports what an answer of "no" excluded', () => {
+    const plan = buildUpgradePlan(19, 22, { ...ADVANCED, material: false });
+    expect(plan.optionImpact.material.applicable).toBeGreaterThan(0);
+    expect(plan.optionImpact.material.excludedByAnswer).toBeGreaterThan(0);
+    expect(plan.optionImpact.material.includedByAnswer).toBe(0);
+  });
+
+  it('reports what an answer of "yes" included', () => {
+    const plan = buildUpgradePlan(19, 22, { ...ADVANCED, material: true });
+    expect(plan.optionImpact.material.includedByAnswer).toBeGreaterThan(0);
+    expect(plan.optionImpact.material.excludedByAnswer).toBe(0);
+  });
+
+  it('accounts for the difference the answer actually makes', () => {
+    const off = buildUpgradePlan(19, 22, { ...ADVANCED, material: false });
+    const on = buildUpgradePlan(19, 22, { ...ADVANCED, material: true });
+
+    expect(on.total).toBeGreaterThan(off.total);
+    expect(on.total - off.total).toBe(off.optionImpact.material.excludedByAnswer);
+  });
+
+  it('still reports an inapplicable option as unable to matter', () => {
+    const plan = buildUpgradePlan(19, 22, ADVANCED);
+    expect(plan.optionImpact.windows.applicable).toBe(0);
+    expect(plan.irrelevantOptions).toContain('windows');
+  });
+});
+
+/**
+ * The tool told the reader to run three separate `ng update` hops, then handed them one
+ * flat 83-item list spanning all three. They regrouped it by hand, correctly observing
+ * that you cannot act on a v22 step while you are on v20.
+ */
+describe('steps are grouped by the hop they belong to', () => {
+  const plan = buildUpgradePlan(19, 22, ADVANCED);
+
+  it('splits the span into one group per major', () => {
+    expect(plan.byMajor.map((g) => g.major)).toEqual([20, 21, 22]);
+  });
+
+  it('accounts for every step exactly once', () => {
+    const grouped = plan.byMajor.reduce((sum, g) => sum + g.steps.length, 0);
+    expect(grouped).toBe(plan.total);
+  });
+
+  it('puts each step in the major that makes it necessary', () => {
+    for (const group of plan.byMajor) {
+      for (const step of group.steps) {
+        expect(Math.ceil(step.necessaryAsOf / 100)).toBe(group.major);
+      }
+    }
+  });
+
+  it('leads each hop with its toolchain prerequisites', () => {
+    // Angular records steps roughly in the order breaking changes landed, so
+    // `update_nodejs_version` sat 16th in the v20 list despite gating step one.
+    for (const group of plan.byMajor) {
+      const firstOther = group.steps.findIndex((s) => !/node|typescript/i.test(s.step));
+      const lastToolchain = group.steps.reduce(
+        (acc, s, i) => (/node|typescript/i.test(s.step) ? i : acc),
+        -1,
+      );
+      if (lastToolchain >= 0 && firstOther >= 0) {
+        expect(lastToolchain, group.major.toString()).toBeLessThan(firstOther);
+      }
     }
   });
 });
