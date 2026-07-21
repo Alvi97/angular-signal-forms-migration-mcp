@@ -67,6 +67,7 @@ export const DOCS = {
   migration: 'https://angular.dev/guide/forms/signals/migration',
   rxjsInterop: 'https://angular.dev/ecosystem/rxjs-interop',
   schemas: 'https://angular.dev/guide/forms/signals/schemas',
+  formBuilderApi: 'https://angular.dev/api/forms/FormBuilder',
 } as const;
 
 /** Pages that establish the core model/form()/schema shape every recipe rests on. */
@@ -762,21 +763,23 @@ removeRule(groupIndex: number, ruleIndex: number): void {
           '`minLength(path.items, 1)`.',
         'Objects in an array automatically receive tracking identities, so field state ' +
           '(touched, dirty, validation) survives reordering.',
-        'PARTIALLY UNVERIFIED — nested shapes. schema(), apply(), applyEach() and indexed ' +
-          'access (form.items[0].name) are each documented individually, but the v22 docs ' +
-          'contain NO example composing them: no group-inside-array, no array-inside-group, ' +
-          'and no applyEach nested inside applyEach. The nested section above follows from ' +
-          'the documented signatures, but was not copied from a published example. Confirm ' +
-          'on https://angular.dev/guide/forms/signals/schemas before relying on it.',
+        'PARTIALLY UNVERIFIED — only the DEEPER nesting. The docs DO show schema() combined ' +
+          'with applyEach() (schemas guide, "Combining applyEach() with reusable schemas"), ' +
+          'and an array of objects inside a group with per-item rules (validation guide). ' +
+          'What no published example shows is apply() INSIDE applyEach(), or applyEach() ' +
+          'inside applyEach() — both of which appear below. They follow from the documented ' +
+          'signatures and they compile, but they are composed here, not copied.',
         'Nested arrays are JUDGMENT work, not a rename. Reactive Forms let you build a ' +
           'ragged structure at runtime; the model signal has to describe that shape as a ' +
           'type up front. Decide the model before touching code.',
         'Mutating a nested array means rebuilding EVERY level above it — `.map()` the outer ' +
           'array, spread the item, replace the inner array. Mutating in place at any level ' +
           'leaves the signal unnotified and the UI stale.',
-        'Prefer named schemas (`schema<Item>(...)` + `apply()`) over inline callbacks once ' +
-          'you are more than one level deep — a reusable schema is also how the same item ' +
-          'rules get shared between two different forms.',
+        'The docs\' criterion for `schema<Item>(...)` is REUSE, not depth: "If rules only ' +
+          'appear in one place, an inline schema function works just as well. Use schema() ' +
+          'when you want to reuse the same schema across multiple forms or apply the same ' +
+          'schema to multiple paths." Naming a schema for readability at depth is a ' +
+          'reasonable extra reason, but it is not the documented one.',
       ],
       sources: [DOCS.validation, DOCS.dynamicJson, DOCS.models, DOCS.fieldState, DOCS.schemas],
     },
@@ -837,9 +840,10 @@ export class Shipping {
         'Choose by intent: a field that comes and goes is a permanent model field gated with ' +
           '`hidden()`; a group of rules that applies conditionally is `applyWhen()`; a ' +
           'genuinely variable-length list is an array in the model (see the FormArray recipe).',
-        'Hidden, disabled and readonly fields are non-interactive and do NOT contribute to ' +
-          'parent validity — which is exactly what makes hidden() a safe substitute for ' +
-          'removing a control.',
+        'Hidden, disabled and readonly fields all SKIP VALIDATION and do not contribute to ' +
+          'parent validity — which is what lets hidden() stand in for removing a control. ' +
+          'Note readonly is not fully inert: the docs say it prevents editing while still ' +
+          'allowing focus and text selection.',
         'VERSION-SENSITIVE rule signature. On v22 the condition is an options object: ' +
           '`hidden(path.x, { when: ctx => ... })`. On v21 it was a bare callback: ' +
           '`hidden(path.x, ctx => ...)`. Check your Angular version, or the rule will not ' +
@@ -911,11 +915,13 @@ readonly f = form(this.model, (path) => {
 });`,
       caveats: [
         STABILITY,
-        'VERIFY BEFORE YOU ACT. This is a static shape match, and Angular treats the two ' +
-          'construction paths differently. `new FormGroup(c, { validator: fn })` drops it ' +
-          '(isOptionsObj is true, so pickValidators reads the absent `.validators`). ' +
-          '`fb.group(c, { validator: fn })` keeps it (isAbstractControlOptions is false, so ' +
-          'a legacy branch assigns `validators = options.validator`). Only the first is a bug.',
+        'VERIFY BEFORE YOU ACT. Angular treats the two construction paths differently, and ' +
+          'this is DOCUMENTED: the FormBuilder API page describes a deprecated `group()` ' +
+          'overload taking a "legacy configuration object" whose keys are the SINGULAR ' +
+          '`validator` / `asyncValidator` — so fb.group still honours them. `new FormGroup` ' +
+          'takes AbstractControlOptions, which documents only the plural `validators` / ' +
+          '`asyncValidators`, so the singular key is ignored there. Only the second is a bug. ' +
+          'See https://angular.dev/api/forms/FormBuilder',
         'Write the failing test first. If it passes on unmodified code, the validator is ' +
           'already running and there is nothing to fix — only an implicit dependency on a ' +
           'legacy path worth making explicit.',
@@ -928,7 +934,7 @@ readonly f = form(this.model, (path) => {
         'Signal Forms removes the whole class: schema rules are function calls, so a ' +
           'misspelled rule is a compile error rather than a silently ignored key.',
       ],
-      sources: [DOCS.validation, DOCS.essentials],
+      sources: [DOCS.validation, DOCS.essentials, DOCS.formBuilderApi],
     },
   ],
   [
@@ -993,8 +999,10 @@ export class Registration {
 //   @if (f.username().pending()) { <span>Checking availability...</span> }`,
       caveats: [
         STABILITY,
-        'Execution order changed and it matters: async rules run ONLY after all synchronous ' +
-          'rules pass. Validation that used to fire on every keystroke now cannot.',
+        'Execution order changed and it matters: async rules run ONLY after every ' +
+          'synchronous rule passes, so a request that used to fire on invalid input no ' +
+          'longer does. It still evaluates on every value change otherwise — the params ' +
+          'function runs per change unless you add a debounce.',
         'While a request is in flight, `pending()` is true and BOTH `valid()` and `invalid()` ' +
           'are false, and `errors()` is empty. Use `invalid()` rather than `!valid()`, or ' +
           'pending states will read as failures.',
@@ -1155,11 +1163,15 @@ onSubmit(): void {
           'getRawValue becomes `this.model()`.',
         'Always produce a NEW object in model.update(...). Mutating the existing one will not ' +
           'notify the signal.',
-        'NO COUNTERPART: markAsTouched / markAllAsTouched / markAsDirty / markAsPristine / ' +
-          'setErrors / markAsPending / updateValueAndValidity / enable / disable / ' +
-          'setValidators / addValidators / removeValidators. All of that state is derived.',
-        '`markAllAsTouched()` before showing errors is usually redundant: submitting via ' +
-          'submit() (or the FormRoot directive) marks every field touched itself.',
+        'THESE DO EXIST on field state, contrary to a common assumption: `markAsTouched()` ' +
+          '(which takes a `skipDescendants` option, defaulting to false so descendants are ' +
+          'marked too) and `markAsDirty()`. Both compile against @angular/forms v22.',
+        'NO COUNTERPART: markAllAsTouched / markAsPristine / markAsPending / setErrors / ' +
+          'updateValueAndValidity / enable / disable / setValidators / addValidators / ' +
+          'removeValidators. Verified absent by compiling each against v22 field state.',
+        '`markAllAsTouched()` has no direct equivalent, but is usually redundant anyway: ' +
+          'submit() (or the FormRoot directive) marks every field touched itself. If you do ' +
+          'need it explicitly, `f().markAsTouched()` marks descendants by default.',
         '`updateValueAndValidity()` has nothing to replace it — validation reruns ' +
           'automatically whenever a value a rule reads changes.',
         'enable()/disable() become the `disabled()` rule; setValidators()/addValidators() ' +
@@ -1300,6 +1312,7 @@ constructor() {
 }`,
       caveats: [
         STABILITY,
+        "UNVERIFIED — tool-authored guidance. The v22 docs describe no migration path from valueChanges pipelines to signals: they never discuss operator equivalents, combineLatest, filter, or when to keep RxJS. The primitives used below (computed, effect, the debounce rule, toObservable/toSignal, rxResource) ARE documented and compile; the strategy for choosing between them is this tool's, not Angular's. Confirm on https://angular.dev/ecosystem/rxjs-interop before relying on it.",
         'Reach for computed() FIRST. If the subscribe body only assigned to a component ' +
           'field, that field was derived state and should be a computed() — using effect() ' +
           'to write state back into signals is an anti-pattern Angular explicitly warns about.',
@@ -1352,6 +1365,7 @@ constructor() {
 }`,
       caveats: [
         STABILITY,
+        "UNVERIFIED — tool-authored guidance. The v22 docs describe no migration path from valueChanges pipelines to signals: they never discuss operator equivalents, combineLatest, filter, or when to keep RxJS. The primitives used below (computed, effect, the debounce rule, toObservable/toSignal, rxResource) ARE documented and compile; the strategy for choosing between them is this tool's, not Angular's. Confirm on https://angular.dev/ecosystem/rxjs-interop before relying on it.",
         'Operator-by-operator mapping: `map` -> computed(); `filter` -> a computed that ' +
           'returns the previous or empty value, or a guard inside the effect; `debounceTime` -> ' +
           'the debounce() schema rule; `distinctUntilChanged` -> implicit in signal equality; ' +
@@ -1423,6 +1437,7 @@ readonly results = toSignal(
 );`,
       caveats: [
         STABILITY,
+        "UNVERIFIED — tool-authored guidance. The v22 docs describe no migration path from valueChanges pipelines to signals: they never discuss operator equivalents, combineLatest, filter, or when to keep RxJS. The primitives used below (computed, effect, the debounce rule, toObservable/toSignal, rxResource) ARE documented and compile; the strategy for choosing between them is this tool's, not Angular's. Confirm on https://angular.dev/ecosystem/rxjs-interop before relying on it.",
         'DO NOT expect a mechanical rewrite. switchMap-style cancellation, ordering and ' +
           'multi-stream joins are exactly what signals do not model; anything claiming a ' +
           'one-liner equivalent is wrong.',
@@ -1432,8 +1447,10 @@ readonly results = toSignal(
           'precisely so RxJS can stay where it is genuinely better.',
         'toObservable only emits after the signal STABILISES — set(1);set(2);set(3) emits just ' +
           '3. A pipeline that relied on seeing every intermediate value will not.',
-        'toSignal subscribes immediately and needs an `initialValue` (or `requireSync`), ' +
-          'because a signal must always have a value. It also unsubscribes automatically.',
+        'toSignal subscribes immediately and unsubscribes automatically. `initialValue` is ' +
+          'OPTIONAL, not required: without it the signal returns `undefined` until the ' +
+          'Observable first emits, so the type includes undefined. Use `requireSync: true` ' +
+          'only for sources guaranteed to emit synchronously, such as a BehaviorSubject.',
         'combineLatest over several form fields is usually just a computed() reading each ' +
           'field — check that before reaching for interop.',
       ],

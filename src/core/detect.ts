@@ -184,6 +184,11 @@ const CONTROL_WRITES_MECHANICAL: ReadonlySet<string> = new Set([
   'reset',
   'getRawValue',
   'hasError',
+  // These two DO exist on Signal Forms field state — verified by compiling them against
+  // @angular/forms v22. They were previously classified judgment on the false assumption
+  // that all imperative state APIs were removed.
+  'markAsTouched',
+  'markAsDirty',
 ]);
 
 /**
@@ -191,10 +196,8 @@ const CONTROL_WRITES_MECHANICAL: ReadonlySet<string> = new Set([
  * become schema rules (disabled/applyWhen), submission, or nothing at all.
  */
 const CONTROL_WRITES_JUDGMENT: ReadonlySet<string> = new Set([
-  'markAsTouched',
   'markAllAsTouched',
   'markAsUntouched',
-  'markAsDirty',
   'markAsPristine',
   'markAsPending',
   'setErrors',

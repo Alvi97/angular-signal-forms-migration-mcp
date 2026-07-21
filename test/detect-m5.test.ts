@@ -100,6 +100,11 @@ describe('writing form state', () => {
     ['patchValue', 'mechanical'],
     ['reset', 'mechanical'],
     ['getRawValue', 'mechanical'],
+    // These two exist on Signal Forms field state — proven by compiling them against
+    // @angular/forms v22 in verify/src/form-state.ts. They were misclassified as
+    // judgment on the assumption that every imperative state API had been removed.
+    ['markAsTouched', 'mechanical'],
+    ['markAsDirty', 'mechanical'],
   ])('classifies .%s() as %s', (method, expected) => {
     const findings = detectInSource(
       '/app/a.ts',
@@ -115,7 +120,6 @@ export class A {
 
   it.each([
     'markAllAsTouched',
-    'markAsTouched',
     'setErrors',
     'updateValueAndValidity',
     'enable',

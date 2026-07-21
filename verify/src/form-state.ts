@@ -81,3 +81,19 @@ export class ProfileFixture {
     void submit(this.f);
   }
 }
+
+/**
+ * Imperative field-state APIs, split by what actually exists.
+ *
+ * An audit found the recipes claiming markAsTouched and markAsDirty had "no counterpart".
+ * They do. Compiling them here makes that claim machine-enforced rather than a belief —
+ * and if a future Angular removes them, this fixture goes red instead of the docs quietly
+ * drifting from the advice.
+ */
+export function imperativeStateThatExists(fixture: ProfileFixture): void {
+  fixture.f().markAsTouched();
+  fixture.f().markAsTouched({ skipDescendants: true });
+  fixture.f.name().markAsDirty();
+  fixture.f().reset();
+  fixture.f().reset({ name: '', email: '', code: '', address: { street: '', city: '' } });
+}

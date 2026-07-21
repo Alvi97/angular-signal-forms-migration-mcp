@@ -232,13 +232,16 @@ describe('nested array and group shapes', () => {
     expect(recipe.after).toContain("from '@angular/forms/signals'");
   });
 
-  it('states honestly that the nested COMPOSITION is not in the docs', () => {
+  it('scopes the unverified claim to the nesting that is genuinely undocumented', () => {
     if (!recipe.found) return;
-    // The primitives are documented; composing them is not shown anywhere in v22.
-    // Claiming otherwise would be exactly the failure this project exists to avoid.
+    // An audit caught this over-claiming: the docs DO show schema() combined with
+    // applyEach(). Only apply()-inside-applyEach and applyEach-inside-applyEach are
+    // absent. Marking documented material as unverified is its own inaccuracy.
     const caveat = recipe.caveats.find((c) => c.includes('PARTIALLY UNVERIFIED'));
     expect(caveat).toBeDefined();
-    expect(caveat).toContain('angular.dev/guide/forms/signals/schemas');
+    expect(caveat).toMatch(/DEEPER nesting/);
+    expect(caveat).toMatch(/docs DO show schema\(\) combined/);
+    expect(caveat).toMatch(/apply\(\) INSIDE applyEach\(\)/);
   });
 
   it('cites the schemas guide as a source', () => {
