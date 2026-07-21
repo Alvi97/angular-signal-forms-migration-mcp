@@ -26,7 +26,7 @@ import { analyzeMigrationComplexity } from './core/complexity.js';
 import { findFormCandidates } from './core/detect.js';
 import { getSignalFormsRecipe } from './core/recipes.js';
 import { buildMigrationReport } from './core/report.js';
-import { buildUpgradePlan } from './core/upgrade.js';
+import { buildUpgradePlan, validateUpgradeRange } from './core/upgrade.js';
 import { buildUpgradeReport } from './core/upgrade-report.js';
 import {
   analyzeMigrationComplexityInputSchema,
@@ -294,6 +294,11 @@ export function createServer(): McpServer {
       }
 
       const to = toMajor ?? VERIFIED_ANGULAR_VERSION;
+
+      // A downgrade or no-op range is a caller error, not an empty plan.
+      const invalid = validateUpgradeRange(from, to);
+      if (invalid !== undefined) return errorResult(invalid);
+
       const plan = buildUpgradePlan(from, to, {
         level: level ?? 3,
         ngUpgrade: ngUpgrade ?? false,

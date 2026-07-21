@@ -36,6 +36,16 @@ export function buildUpgradeReport(plan: UpgradePlan, signalFormsGoal: boolean):
   lines.push('');
 
   if (plan.total === 0) {
+    // Distinguish "no steps needed" from "no data" — they look identical otherwise, and
+    // only one of them means you can proceed.
+    if (plan.warnings.length > 0) {
+      lines.push('> **⚠️ No steps could be produced for this range.**');
+      for (const warning of plan.warnings) lines.push('>', `> ${warning}`);
+      lines.push('');
+      lines.push(`Use [the official guide](${plan.guideUrl}) for this upgrade.`);
+      return lines.join('\n');
+    }
+
     lines.push(
       `Nothing to do — v${String(plan.fromMajor)} already satisfies the target. ` +
         (signalFormsGoal
@@ -59,6 +69,13 @@ export function buildUpgradeReport(plan: UpgradePlan, signalFormsGoal: boolean):
       `[check against the official guide](${plan.guideUrl})`,
   );
   lines.push('');
+
+  // Incompleteness has to be stated before the steps, not after them.
+  if (plan.warnings.length > 0) {
+    lines.push('> **⚠️ This plan is incomplete.**');
+    for (const warning of plan.warnings) lines.push(`>`, `> ${warning}`);
+    lines.push('');
+  }
 
   /* ---- One major at a time ------------------------------------------------ */
 

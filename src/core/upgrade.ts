@@ -52,7 +52,56 @@ export interface UpgradePlan {
   /** The options above with zero applicable steps, for a plain "this does not matter" note. */
   readonly irrelevantOptions: string[];
   readonly guideUrl: string;
+  /** Non-fatal problems — chiefly a requested range the vendored data cannot cover. */
+  readonly warnings: string[];
+  readonly coverage: DataCoverage;
   readonly provenance: UpgradeStepData['provenance'];
+}
+
+export interface DataCoverage {
+  readonly minMajor: number;
+  readonly maxMajor: number;
+}
+
+/**
+ * The Angular majors the vendored data actually knows about.
+ *
+ * Computed from the data rather than hardcoded, so refreshing it with
+ * `npm run data:update-steps` widens the range automatically.
+ */
+export function dataCoverage(): DataCoverage {
+  let min = Number.POSITIVE_INFINITY;
+  let max = 0;
+  for (const step of data.steps) {
+    min = Math.min(min, step.possibleIn, step.necessaryAsOf);
+    max = Math.max(max, step.possibleIn, step.necessaryAsOf);
+  }
+  return { minMajor: Math.floor(min / 100), maxMajor: Math.floor(max / 100) };
+}
+
+/**
+ * Rejects ranges that cannot mean anything, returning a message or undefined.
+ *
+ * A downgrade previously returned an empty plan, which reads as "nothing to do" — the
+ * most dangerous possible answer to "how do I go from 22 to 19".
+ */
+export function validateUpgradeRange(fromMajor: number, toMajor: number): string | undefined {
+  if (!Number.isInteger(fromMajor) || fromMajor < 1) {
+    return `"${String(fromMajor)}" is not a valid Angular major version.`;
+  }
+  if (!Number.isInteger(toMajor) || toMajor < 1) {
+    return `"${String(toMajor)}" is not a valid Angular major version.`;
+  }
+  if (fromMajor === toMajor) {
+    return `The project is already on v${String(fromMajor)}; there is nothing to upgrade.`;
+  }
+  if (fromMajor > toMajor) {
+    return (
+      `Cannot plan a downgrade from v${String(fromMajor)} to v${String(toMajor)}. ` +
+      'Angular publishes upgrade guidance only in the forward direction.'
+    );
+  }
+  return undefined;
 }
 
 /** The guide numbers versions as major * 100 — v19.0 is 1900. */
@@ -117,6 +166,26 @@ export function buildUpgradePlan(
   const majorSteps: number[] = [];
   for (let major = fromMajor + 1; major <= toMajor; major++) majorSteps.push(major);
 
+  // Honesty about the edges: outside the vendored range the plan is incomplete, and an
+  // incomplete plan that looks complete is worse than no plan.
+  const coverage = dataCoverage();
+  const warnings: string[] = [];
+  if (toMajor > coverage.maxMajor) {
+    warnings.push(
+      `This data only covers up to Angular v${String(coverage.maxMajor)}, but you asked to ` +
+        `reach v${String(toMajor)}. Steps for v${String(coverage.maxMajor + 1)}+ are NOT ` +
+        'included — refresh the data (npm run data:update-steps) or use the official guide ' +
+        'for the remainder.',
+    );
+  }
+  if (fromMajor < coverage.minMajor) {
+    warnings.push(
+      `This data starts at Angular v${String(coverage.minMajor)}, but you are on ` +
+        `v${String(fromMajor)}. Steps required before v${String(coverage.minMajor)} are not ` +
+        'included.',
+    );
+  }
+
   // Count steps in range that carry each flag at all, regardless of what was selected.
   const relevance = { ngUpgrade: 0, material: 0, windows: 0 };
   for (const step of data.steps) {
@@ -139,6 +208,8 @@ export function buildUpgradePlan(
     optionRelevance: relevance,
     irrelevantOptions: FILTERED_OPTIONS.filter((option) => relevance[option] === 0),
     guideUrl: updateGuideUrl(fromMajor, toMajor, options.level),
+    warnings,
+    coverage,
     provenance: data.provenance,
   };
 }

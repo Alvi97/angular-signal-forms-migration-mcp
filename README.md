@@ -256,7 +256,16 @@ It also tells you which of those questions are **irrelevant to your version rang
 19 → 22 the Windows and ngUpgrade answers cannot change anything, because those steps stop
 at v9 and v19 respectively. The official guide asks anyway.
 
-Refresh the vendored data with `npm run data:update-steps`.
+It handles **any forward range the data covers — v2 to v22** — not just the Signal Forms
+prerequisite. `{ "fromMajor": 14, "toMajor": 17 }` works, and both default sensibly:
+`fromMajor` to the detected version, `toMajor` to the version the recipes target.
+
+Outside that range it says so rather than guessing. Asking to reach v25 returns the v22
+plan with **"⚠️ This plan is incomplete"** naming what is missing; a downgrade or a no-op
+range is rejected outright, because an empty plan reads as "nothing to do".
+
+Refresh the vendored data with `npm run data:update-steps` — the covered range widens
+automatically, since it is computed from the data rather than hardcoded.
 
 ## Example
 

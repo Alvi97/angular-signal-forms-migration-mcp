@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildUpgradePlan,
+  dataCoverage,
   majorToVersionCode,
   updateGuideUrl,
+  validateUpgradeRange,
   type UpgradeOptions,
 } from '../src/core/upgrade.js';
 
@@ -138,5 +140,82 @@ describe('plan shape', () => {
     const current = buildUpgradePlan(22, 22, ADVANCED);
     expect(current.total).toBe(0);
     expect(current.majorSteps).toEqual([]);
+  });
+});
+
+/**
+ * The data covers a finite version range. Outside it the planner must say so rather than
+ * return an empty or partial plan that reads as "nothing to do" — a plan that silently
+ * omits three majors is worse than a refusal.
+ */
+describe('version ranges outside the vendored data', () => {
+  it('exposes what the data actually covers', () => {
+    expect(dataCoverage().minMajor).toBeLessThanOrEqual(4);
+    expect(dataCoverage().maxMajor).toBeGreaterThanOrEqual(22);
+  });
+
+  it('rejects a downgrade', () => {
+    expect(validateUpgradeRange(22, 19)).toMatch(/downgrade|lower|before/i);
+  });
+
+  it('rejects a no-op range', () => {
+    expect(validateUpgradeRange(19, 19)).toMatch(/already|same/i);
+  });
+
+  it.each([[0], [-3]])('rejects a nonsensical major (%i)', (major) => {
+    expect(validateUpgradeRange(major, 22)).toBeDefined();
+  });
+
+  it('accepts any real forward range', () => {
+    const ranges: ReadonlyArray<readonly [number, number]> = [
+      [4, 22],
+      [8, 12],
+      [14, 17],
+      [16, 22],
+      [21, 22],
+    ];
+    for (const [from, to] of ranges) {
+      expect(validateUpgradeRange(from, to), `${String(from)}->${String(to)}`).toBeUndefined();
+    }
+  });
+
+  it('warns rather than pretends when the target exceeds the data', () => {
+    // 19 -> 25 used to return the 19 -> 22 steps and claim majorSteps up to 25.
+    const plan = buildUpgradePlan(19, 25, ADVANCED);
+    expect(plan.warnings.join(' ')).toMatch(/only covers|beyond|up to v22/i);
+    expect(plan.warnings.join(' ')).toContain('22');
+  });
+
+  it('warns when the starting version predates the data', () => {
+    const plan = buildUpgradePlan(1, 22, ADVANCED);
+    expect(plan.warnings.length).toBeGreaterThan(0);
+  });
+
+  it('says nothing alarming for a range fully inside the data', () => {
+    expect(buildUpgradePlan(19, 22, ADVANCED).warnings).toEqual([]);
+  });
+});
+
+describe('plans across the whole supported history', () => {
+  it.each([
+    [4, 22],
+    [8, 12],
+    [12, 16],
+    [14, 17],
+    [16, 22],
+    [17, 21],
+    [21, 22],
+  ])('v%i -> v%i produces a usable plan', (from, to) => {
+    const plan = buildUpgradePlan(from, to, ADVANCED);
+
+    expect(plan.total).toBeGreaterThan(0);
+    expect(plan.majorSteps[0]).toBe(from + 1);
+    expect(plan.majorSteps.at(-1)).toBe(to);
+    expect(plan.guideUrl).toContain(`v=${String(from)}.0-${String(to)}.0`);
+    // Every returned step must genuinely belong to this span.
+    for (const step of [...plan.before, ...plan.during, ...plan.after]) {
+      expect(step.necessaryAsOf).toBeGreaterThan(from * 100);
+      expect(step.possibleIn).toBeLessThanOrEqual(to * 100);
+    }
   });
 });
