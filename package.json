@@ -1,0 +1,51 @@
+{
+  "name": "signal-forms-migration-mcp",
+  "version": "0.1.0",
+  "description": "MCP server that detects Angular Reactive Forms constructs and advises on migrating them to Angular v21 Signal Forms. Detect-and-advise only — never edits your code.",
+  "type": "module",
+  "main": "dist/server.js",
+  "bin": {
+    "signal-forms-migration-mcp": "dist/server.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "npm run typecheck && npm run lint && npm run test",
+    "start": "node dist/server.js"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "angular",
+    "signal-forms",
+    "reactive-forms",
+    "migration"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "typescript": "^5.9.3",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.1.1",
+    "eslint": "^10.7.0",
+    "prettier": "^3.9.5",
+    "typescript-eslint": "^8.65.0",
+    "vitest": "^4.1.10"
+  },
+  "private": true
+}
