@@ -232,6 +232,32 @@ applies to your codebase (it stays silent when none does).
 It returns the markdown as a **string**. It does not write a file — saving it is your
 decision, not the server's.
 
+### `get_angular_upgrade_plan`
+
+Signal Forms needs Angular 21+. When your project is older, the migration cannot start —
+so this returns the upgrade plan instead.
+
+```jsonc
+{ "path": "/abs/path/to/repo", "level": 3, "material": true }
+```
+
+It asks the same questions angular.dev/update-guide does — application complexity (1 Basic,
+2 Medium, 3 Advanced), and whether you use ngUpgrade, Angular Material or Windows — and
+returns before/during/after steps as markdown, plus the one-major-at-a-time command
+sequence.
+
+**None of the step text is written by this tool.** It is Angular's own update-guide data,
+vendored verbatim from
+[the Angular repo](https://github.com/angular/angular/blob/main/adev/src/app/features/update/recommendations.ts)
+with the commit recorded, and reproduced with Angular's own filter logic. Every plan links
+back to the live guide, which stays authoritative.
+
+It also tells you which of those questions are **irrelevant to your version range** — for
+19 → 22 the Windows and ngUpgrade answers cannot change anything, because those steps stop
+at v9 and v19 respectively. The official guide asks anyway.
+
+Refresh the vendored data with `npm run data:update-steps`.
+
 ## Example
 
 ```

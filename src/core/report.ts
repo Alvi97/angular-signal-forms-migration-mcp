@@ -140,6 +140,13 @@ function prerequisiteLines(version: AngularVersion): string[] {
       'ordering and the judgment calls do not change with the upgrade.',
   );
   lines.push('');
+  lines.push(
+    'For the upgrade itself, call `get_angular_upgrade_plan { "path": "<this path>", ' +
+      '"level": 3 }` — it reproduces angular.dev/update-guide from Angular’s own published ' +
+      'step data, and asks the same questions (application complexity; ngUpgrade, Angular ' +
+      'Material, Windows).',
+  );
+  lines.push('');
   return lines;
 }
 

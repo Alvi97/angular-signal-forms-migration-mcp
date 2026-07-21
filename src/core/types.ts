@@ -310,3 +310,79 @@ export const getMigrationReportOutputSchema = z.object({
   markdown: z.string(),
 });
 export type GetMigrationReportOutput = z.infer<typeof getMigrationReportOutputSchema>;
+
+/* -------------------------------------------------------------------------- */
+/* Angular upgrade guide                                                       */
+/* -------------------------------------------------------------------------- */
+
+/** Application complexity, matching Angular's own enum: Basic 1, Medium 2, Advanced 3. */
+export const applicationComplexitySchema = z.union([z.literal(1), z.literal(2), z.literal(3)]);
+export type ApplicationComplexity = z.infer<typeof applicationComplexitySchema>;
+
+/**
+ * One step from Angular's update guide, vendored verbatim.
+ *
+ * `action` is markdown/HTML exactly as Angular publishes it. Optional flags are tri-state:
+ * absent, `true` (the step requires that option) or `false` (hide when the option is set).
+ */
+export const upgradeStepSchema = z.object({
+  possibleIn: z.number().int(),
+  necessaryAsOf: z.number().int(),
+  level: z.number().int(),
+  step: z.string(),
+  action: z.string(),
+  ngUpgrade: z.boolean().optional(),
+  material: z.boolean().optional(),
+  pwa: z.boolean().optional(),
+  angularCLI: z.boolean().optional(),
+  windows: z.boolean().optional(),
+});
+export type UpgradeStep = z.infer<typeof upgradeStepSchema>;
+
+export const upgradeStepDataSchema = z.object({
+  provenance: z.object({
+    source: z.string().url(),
+    raw: z.string().url(),
+    commit: z.string(),
+    committedISO: z.string(),
+    retrievedISO: z.string(),
+    note: z.string(),
+  }),
+  steps: z.array(upgradeStepSchema),
+});
+export type UpgradeStepData = z.infer<typeof upgradeStepDataSchema>;
+
+export const getAngularUpgradePlanInputSchema = z.object({
+  path: z
+    .string()
+    .min(1)
+    .describe(
+      'Absolute path inside the Angular project. The current version is read from its package.json.',
+    ),
+  fromMajor: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe('Override the detected current major version.'),
+  toMajor: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe('Target major. Defaults to the version the recipes are verified against.'),
+  level: applicationComplexitySchema
+    .optional()
+    .describe(
+      'Application complexity, as on angular.dev/update-guide: 1 Basic, 2 Medium, 3 Advanced. Defaults to 3.',
+    ),
+  ngUpgrade: z.boolean().optional().describe('"I use ngUpgrade to combine AngularJS & Angular."'),
+  material: z.boolean().optional().describe('"I use Angular Material."'),
+  windows: z.boolean().optional().describe('"I use Windows." Swaps in cmd-compatible commands.'),
+});
+export type GetAngularUpgradePlanInput = z.infer<typeof getAngularUpgradePlanInputSchema>;
+
+export const getAngularUpgradePlanOutputSchema = z.object({
+  markdown: z.string(),
+});
+export type GetAngularUpgradePlanOutput = z.infer<typeof getAngularUpgradePlanOutputSchema>;

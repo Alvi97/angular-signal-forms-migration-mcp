@@ -7,7 +7,9 @@ export default tseslint.config(
     // `verify/` is a separate workspace with its own tsconfig and its own compile check
     // (npm run verify:recipes). Linting it from here would need it in this project's
     // program, which would drag real Angular into the published package's typecheck.
-    ignores: ['dist/**', 'node_modules/**', 'coverage/**', 'verify/**'],
+    // `scripts/` are plain node build tools, outside the typed program; `verify/` is a
+    // separate workspace with its own tsconfig and its own compile check.
+    ignores: ['dist/**', 'node_modules/**', 'coverage/**', 'verify/**', 'scripts/**'],
   },
   js.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,

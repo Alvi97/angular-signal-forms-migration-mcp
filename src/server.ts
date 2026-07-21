@@ -17,23 +17,32 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
-import { detectAngularVersion, signalFormsAvailable } from './core/angular-version.js';
+import {
+  detectAngularVersion,
+  MIN_SIGNAL_FORMS_VERSION,
+  signalFormsAvailable,
+} from './core/angular-version.js';
 import { analyzeMigrationComplexity } from './core/complexity.js';
 import { findFormCandidates } from './core/detect.js';
 import { getSignalFormsRecipe } from './core/recipes.js';
 import { buildMigrationReport } from './core/report.js';
+import { buildUpgradePlan } from './core/upgrade.js';
+import { buildUpgradeReport } from './core/upgrade-report.js';
 import {
   analyzeMigrationComplexityInputSchema,
   findFormCandidatesInputSchema,
   findFormCandidatesOutputSchema,
   getSignalFormsRecipeInputSchema,
   getSignalFormsRecipeOutputSchema,
+  getAngularUpgradePlanInputSchema,
+  getAngularUpgradePlanOutputSchema,
   getMigrationReportInputSchema,
   getMigrationReportOutputSchema,
   analyzeMigrationComplexityOutputSchema,
   type FindFormCandidatesOutput,
   type GetSignalFormsRecipeOutput,
 } from './core/types.js';
+import { VERIFIED_ANGULAR_VERSION } from './core/version.js';
 import { nodeFileSystem, toAbsolute } from './infra/node-fs.js';
 import { checkForUpdate } from './infra/update-notifier.js';
 
@@ -87,15 +96,16 @@ function errorResult(message: string): CallToolResult {
 export const SERVER_INSTRUCTIONS = `This server DETECTS and ADVISES on migrating Angular Reactive Forms to Signal Forms.
 It never edits code. You make every edit, and the user reviews it.
 
-Order: get_migration_report for the whole picture, find_form_candidates for one file's
-edit sites, get_signalforms_recipe per construct before writing any replacement code.
+Order: get_migration_report for the picture, find_form_candidates for one file's edit
+sites, get_signalforms_recipe per construct before writing replacement code. When the
+project is below v21, get_angular_upgrade_plan gives the upgrade that must come first.
 
 Rules that matter:
 
 - CHECK THE PREREQUISITE FIRST. If the report opens with a BLOCKING PREREQUISITE, or
   analyze_migration_complexity returns a non-null blockingPrerequisite, the project's
-  Angular is too old for @angular/forms/signals and NO recipe will compile. Tell the user
-  to upgrade; do not start migrating.
+  Angular is too old for @angular/forms/signals and NO recipe will compile. Do not
+  migrate; use get_angular_upgrade_plan instead.
 
 - NEVER treat a "judgment" finding as mechanical. Judgment means the shape changes and a
   human decides the design. Ask, or present options — do not pick one silently. Some
@@ -103,9 +113,10 @@ Rules that matter:
   enumerating form.controls); the recipe says so, and inventing an API is the worst
   outcome available.
 
-- READ THE CAVEATS on every recipe before using its "after" snippet. Anything marked
-  VERSION-SENSITIVE behaves differently across Angular versions and carries a
-  version-independent fallback. Anything marked UNVERIFIED is not confirmed by the docs.
+- READ THE CAVEATS before using any "after" snippet. VERSION-SENSITIVE means behaviour
+  differs across Angular versions and a fallback is given; UNVERIFIED means the docs did
+  not confirm it. Recipes carry provenance (version, source URLs, date) — if the user's
+  Angular differs from it, say so rather than assuming.
 
 - TEMPLATES ARE NOT SCANNED. Only .ts is parsed, so every migrated component also needs
   its .html updated ([formGroup]/formControlName -> [formField]), and template-driven
@@ -116,8 +127,6 @@ Rules that matter:
   with whichever file defines that form. Shared validator files own no
   form but gate every consumer, so settle their error shape early.
 
-- Recipes are verified against a specific Angular version and carry provenance (source
-  URLs and date). If the user's version differs, say so rather than assuming.
 
 - DO NOT INVENT API NAMES, including when explaining rather than writing code. Use only
   what the recipes give you. Signal Forms is too new to recall reliably, and one wrong
@@ -252,6 +261,48 @@ export function createServer(): McpServer {
       return {
         // The markdown IS the payload here, so it goes in content as-is rather than
         // being JSON-encoded — the agent should be able to read or save it directly.
+        content: [{ type: 'text', text: markdown }],
+        structuredContent: { markdown },
+      };
+    },
+  );
+
+  server.registerTool(
+    'get_angular_upgrade_plan',
+    {
+      title: 'Plan the Angular upgrade that Signal Forms requires',
+      description:
+        'Signal Forms needs Angular 21+. When a project is older, this returns the upgrade ' +
+        "plan as markdown, reproducing angular.dev/update-guide from Angular's own published " +
+        'step data — not written by this server. The current version is detected from the ' +
+        'project; you choose application complexity (1 Basic, 2 Medium, 3 Advanced) and ' +
+        'whether you use ngUpgrade, Angular Material or Windows, exactly as the official ' +
+        'guide asks. Read-only: this tool never modifies your files.',
+      inputSchema: getAngularUpgradePlanInputSchema.shape,
+      outputSchema: getAngularUpgradePlanOutputSchema.shape,
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    },
+    ({ path, fromMajor, toMajor, level, ngUpgrade, material, windows }) => {
+      const detected = detectAngularVersion(toAbsolute(path), nodeFileSystem);
+      const from = fromMajor ?? (detected.known ? detected.major : undefined);
+
+      if (from === undefined) {
+        return errorResult(
+          "Could not determine the project's Angular version, and no fromMajor was given. " +
+            (detected.known ? '' : detected.reason),
+        );
+      }
+
+      const to = toMajor ?? VERIFIED_ANGULAR_VERSION;
+      const plan = buildUpgradePlan(from, to, {
+        level: level ?? 3,
+        ngUpgrade: ngUpgrade ?? false,
+        material: material ?? false,
+        windows: windows ?? false,
+      });
+
+      const markdown = buildUpgradeReport(plan, to >= MIN_SIGNAL_FORMS_VERSION);
+      return {
         content: [{ type: 'text', text: markdown }],
         structuredContent: { markdown },
       };
