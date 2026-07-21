@@ -15,6 +15,40 @@ import type { FileFindings, Finding } from './types.js';
 /** How many judgment findings to spell out per file before summarising the rest. */
 const MAX_LISTED_JUDGMENTS = 10;
 
+/**
+ * Constructs that are LIVE BUGS rather than migration work.
+ *
+ * These get their own section above the plan because they are actionable today, on the
+ * current Angular, whether or not the migration ever happens — and because a faithful
+ * migration would carry them across into new code where they are harder to spot.
+ */
+const BUG_CONSTRUCTS: ReadonlySet<string> = new Set(['deadValidatorOption']);
+
+interface BugSite {
+  readonly file: string;
+  readonly line: number;
+  readonly construct: string;
+  readonly snippet: string;
+  readonly reason: string;
+}
+
+function collectBugs(files: readonly FileFindings[]): BugSite[] {
+  const bugs: BugSite[] = [];
+  for (const entry of files) {
+    for (const finding of entry.findings) {
+      if (!BUG_CONSTRUCTS.has(finding.construct)) continue;
+      bugs.push({
+        file: entry.file,
+        line: finding.line,
+        construct: finding.construct,
+        snippet: finding.snippet,
+        reason: finding.reason,
+      });
+    }
+  }
+  return bugs;
+}
+
 function shortPath(file: string, root: string): string {
   return file.startsWith(root) ? file.slice(root.length).replace(/^\//, '') : file;
 }
@@ -165,6 +199,33 @@ export function buildMigrationReport(
   lines.push(`Scanned: \`${root}\``);
   lines.push('');
   lines.push(...prerequisiteLines(version));
+
+  /* ---- Live bugs --------------------------------------------------------- */
+
+  // Deliberately above the plan, and rendered even when the version gate blocks the
+  // migration: a gate stops a migration, not a one-word bug fix.
+  const bugs = collectBugs(files);
+  if (bugs.length > 0) {
+    lines.push('## Bugs found — fix these before migrating');
+    lines.push('');
+    lines.push(
+      'These are not migration steps. They are defects in the code as it stands today, ' +
+        'fixable independently of any Angular upgrade. They are listed first because a ' +
+        'faithful migration would carry them into the new code, where a rewrite makes them ' +
+        'much harder to notice.',
+    );
+    lines.push('');
+    for (const bug of bugs) {
+      lines.push(`- \`${shortPath(bug.file, root)}:${String(bug.line)}\` — **${bug.construct}**`);
+      lines.push(`  - \`${bug.snippet}\``);
+      lines.push(`  - ${bug.reason}`);
+    }
+    lines.push('');
+    lines.push(
+      `Look up the fix with \`get_signalforms_recipe { "construct": "${bugs[0]?.construct ?? ''}" }\`.`,
+    );
+    lines.push('');
+  }
 
   if (complexity.totalFindings === 0) {
     lines.push('No Reactive Forms constructs were found under this path.');

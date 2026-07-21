@@ -241,3 +241,58 @@ describe('consistency holds for degenerate workspaces too', () => {
     }
   });
 });
+
+/**
+ * Live bugs are not migration work.
+ *
+ * The dead-validator detection shipped and then went unnoticed by a reader, because it
+ * rendered as one row among twenty in the construct table — visually identical to
+ * `Validators.pattern`. An earlier report, produced BEFORE the detection existed, gave the
+ * same bug its own section because a human found it by hand. Capability went up and the
+ * outcome went down, which means the placement was wrong, not the detection.
+ */
+describe('live bugs are surfaced, not buried', () => {
+  const buggy: readonly FileFindings[] = [
+    file(
+      '/repo/reset.component.ts',
+      `export class R {
+         constructor(private fb: FormBuilder) {}
+         form = this.fb.group({ a: [''] }, { validator: this.chk });
+       }`,
+    ),
+    ...WORKSPACE,
+  ];
+
+  const report = buildMigrationReport('/repo', buggy, V22);
+
+  it('gives them their own section', () => {
+    expect(report).toContain('## Bugs found');
+  });
+
+  it('puts them above the migration plan', () => {
+    expect(report.indexOf('## Bugs found')).toBeLessThan(report.indexOf('## Summary'));
+  });
+
+  it('names the file and line so they can be fixed without a search', () => {
+    expect(report).toMatch(/reset\.component\.ts:\d+/);
+  });
+
+  it('says these are fixable now, independent of the migration', () => {
+    const section = report.slice(report.indexOf('## Bugs found'), report.indexOf('## Summary'));
+    expect(section).toMatch(/before migrating|independently|today/i);
+  });
+
+  it('still surfaces them when the migration itself is blocked', () => {
+    // A version gate stops the migration; it does not stop a one-word bug fix.
+    const blocked = buildMigrationReport('/repo', buggy, V19);
+    expect(blocked).toContain('## Bugs found');
+    expect(blocked.indexOf('BLOCKING PREREQUISITE')).toBeLessThan(blocked.indexOf('## Bugs found'));
+  });
+
+  it('says nothing when there are no bugs', () => {
+    // WORKSPACE's hard.component.ts deliberately carries the same typo, so a clean
+    // workspace has to exclude it.
+    const clean = WORKSPACE.filter((f) => !f.file.includes('hard.component'));
+    expect(buildMigrationReport('/repo', clean, V22)).not.toContain('## Bugs found');
+  });
+});

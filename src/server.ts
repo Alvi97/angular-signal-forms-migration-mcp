@@ -87,10 +87,8 @@ function errorResult(message: string): CallToolResult {
 export const SERVER_INSTRUCTIONS = `This server DETECTS and ADVISES on migrating Angular Reactive Forms to Signal Forms.
 It never edits code. You make every edit, and the user reviews it.
 
-Use it in this order:
-1. get_migration_report (or analyze_migration_complexity) for the whole picture.
-2. find_form_candidates for the exact edit sites in one file.
-3. get_signalforms_recipe per construct, before writing any replacement code.
+Order: get_migration_report for the whole picture, find_form_candidates for one file's
+edit sites, get_signalforms_recipe per construct before writing any replacement code.
 
 Rules that matter:
 
@@ -109,9 +107,9 @@ Rules that matter:
   VERSION-SENSITIVE behaves differently across Angular versions and carries a
   version-independent fallback. Anything marked UNVERIFIED is not confirmed by the docs.
 
-- TEMPLATES ARE NOT SCANNED. Only .ts is parsed. Every migrated component also needs its
-  .html updated ([formGroup]/formControlName -> [formField]), and template-driven forms
-  (ngModel) produce no findings at all. The totals are the Reactive Forms slice only.
+- TEMPLATES ARE NOT SCANNED. Only .ts is parsed, so every migrated component also needs
+  its .html updated ([formGroup]/formControlName -> [formField]), and template-driven
+  forms (ngModel) produce no findings. The totals are the Reactive Forms slice only.
 
 - Migrate in the suggested order. Files reported as not owning a form hold only a
   reference to one defined elsewhere and cannot be migrated alone — move them together
@@ -119,7 +117,14 @@ Rules that matter:
   form but gate every consumer, so settle their error shape early.
 
 - Recipes are verified against a specific Angular version and carry provenance (source
-  URLs and date). If the user's version differs, say so rather than assuming.`;
+  URLs and date). If the user's version differs, say so rather than assuming.
+
+- DO NOT INVENT API NAMES, including when explaining rather than writing code. Use only
+  what the recipes give you. Signal Forms is too new to recall reliably, and one wrong
+  name recurs: there is NO "Control" export — that is pre-release naming, and it does not
+  exist in v21+. The binding directive is FormField / [formField]; the form element
+  directive is FormRoot / [formRoot]. If you are about to name an API that did not come
+  from a recipe, say you are unsure instead.`;
 
 export function createServer(): McpServer {
   const server = new McpServer(

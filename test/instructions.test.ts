@@ -35,3 +35,27 @@ describe('server instructions', () => {
     expect(SERVER_INSTRUCTIONS).not.toMatch(/this server (will|can) (edit|write|modify)/i);
   });
 });
+
+/**
+ * A report produced WITH these instructions still described the API as shipping
+ * "form(), Control, schema(), and [formField]". `Control` does not exist — it is the
+ * pre-release name, and the compile harness proves the export is absent (TS2305).
+ *
+ * The recipes never mention it; the model reintroduced it from memory in its own prose.
+ * Instructions cannot stop a model reasoning aloud, but they can name the specific wrong
+ * answer, which is far more effective than a general "use the docs" instruction.
+ */
+describe('suppresses the known API hallucination', () => {
+  it('names Control as non-existent', () => {
+    expect(SERVER_INSTRUCTIONS).toContain('Control');
+    expect(SERVER_INSTRUCTIONS).toMatch(/does not exist|no .?Control.? export/i);
+  });
+
+  it('names the correct binding directive alongside it', () => {
+    expect(SERVER_INSTRUCTIONS).toContain('formField');
+  });
+
+  it('tells the agent not to name APIs the recipes did not give it', () => {
+    expect(SERVER_INSTRUCTIONS).toMatch(/do not invent|only.*names.*recipes|from the recipes/i);
+  });
+});
