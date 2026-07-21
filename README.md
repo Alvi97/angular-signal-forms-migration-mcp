@@ -90,33 +90,37 @@ to confirm anything current or project-specific before it edits.
 
 ## Install
 
-Requires Node.js 20+.
+Requires Node.js 20+. No clone needed — `npx` fetches it on demand.
+
+```bash
+claude mcp add signal-forms-migration -- npx -y angular-signal-forms-migration-mcp
+```
+
+Or add it to any MCP client config:
+
+```json
+{
+  "mcpServers": {
+    "signal-forms-migration": {
+      "command": "npx",
+      "args": ["-y", "angular-signal-forms-migration-mcp"]
+    }
+  }
+}
+```
+
+<details>
+<summary>Running from a local clone instead</summary>
 
 ```bash
 git clone https://github.com/Alvi97/angular-signal-forms-migration-mcp.git
 cd angular-signal-forms-migration-mcp
 npm install
 npm run build
+claude mcp add signal-forms-migration -- node "$PWD/dist/server.js"
 ```
 
-## Run it from Claude Code
-
-```bash
-claude mcp add signal-forms-migration -- node /absolute/path/to/signal-forms-migration-mcp/dist/server.js
-```
-
-Or add it to your MCP client config directly:
-
-```json
-{
-  "mcpServers": {
-    "signal-forms-migration": {
-      "command": "node",
-      "args": ["/absolute/path/to/signal-forms-migration-mcp/dist/server.js"]
-    }
-  }
-}
-```
+</details>
 
 The transport is stdio, so stdout is reserved for the protocol; all logging goes to stderr.
 

@@ -20,3 +20,6 @@ yarn-error.log*
 
 # JetBrains
 .idea/
+
+# npm pack output
+*.tgz
