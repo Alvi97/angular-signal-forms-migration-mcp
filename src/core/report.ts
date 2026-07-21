@@ -208,12 +208,30 @@ function coverageLines(
   if (coverage === undefined || coverage.unprotected === 0) return [];
 
   const lines = ['## What is verifying this migration', ''];
+
+  // A broken harness invalidates every coverage claim beneath it, so it goes first.
+  if (coverage.brokenHarness.length > 0) {
+    lines.push(
+      '**Some test infrastructure is empty, so specs beneath it do not run at all** — ' +
+        'regardless of what those specs contain. Fix this before judging coverage:',
+    );
+    lines.push('');
+    for (const file of coverage.brokenHarness)
+      lines.push(`- \`${shortPath(file, root)}\` — 0 bytes`);
+    lines.push('');
+  }
+
   const percent = Math.round((coverage.unprotected / Math.max(coverage.total, 1)) * 100);
   lines.push(
     `**${String(coverage.unprotected)} of ${String(coverage.total)} files (${String(percent)}%) ` +
-      'to be rewritten have no working test.** The compiler will catch shape errors; it will ' +
-      'not catch a validator that stopped firing or a field that stopped binding. Consider ' +
-      'writing characterisation tests for the highest-finding files before changing them.',
+      'to be rewritten have no test that runs.** The compiler will catch shape errors; it ' +
+      'will not catch a validator that stopped firing or a field that stopped binding. ' +
+      'Consider characterisation tests for the highest-finding files before changing them.',
+  );
+  lines.push('');
+  lines.push(
+    'Note this only checks that a sibling `.spec.ts` exists and is non-empty — it does not ' +
+      'run anything, so a present spec may still assert nothing useful.',
   );
   lines.push('');
 
@@ -224,7 +242,7 @@ function coverageLines(
   };
 
   if (coverage.emptySpec.length > 0) {
-    lines.push('**Spec file exists but is empty** — reads as coverage, provides none:');
+    lines.push('**Spec exists but cannot verify anything** (empty, or under a broken harness):');
     lines.push('');
     for (const file of coverage.emptySpec) lines.push(withCounts(file));
     lines.push('');

@@ -23,6 +23,11 @@ export interface Companion {
   readonly installed: string;
   readonly category: CompanionCategory;
   readonly note: string;
+  /**
+   * Build tooling that no supplied build config references. Only ever true when configs
+   * were actually provided — absent config means unknowable, not unused.
+   */
+  readonly unused: boolean;
 }
 
 interface CompanionRule {
@@ -94,14 +99,35 @@ export function declaredDependencyNames(manifest: unknown): string[] {
   return Object.keys(allDependencies(manifest)).sort((a, b) => a.localeCompare(b));
 }
 
-export function detectCompanions(manifest: unknown): Companion[] {
+export function detectCompanions(
+  manifest: unknown,
+  /** Raw contents of angular.json / project.json files, if available. */
+  buildConfigs: readonly string[] = [],
+): Companion[] {
   const deps = allDependencies(manifest);
   const found: Companion[] = [];
+  const configText = buildConfigs.join('\n');
 
   for (const [name, installed] of Object.entries(deps)) {
     const rule = RULES.find((candidate) => candidate.match.test(name));
     if (rule === undefined) continue;
-    found.push({ name, installed, category: rule.category, note: rule.note });
+
+    // A builder nothing references is dead weight that will fight the upgrade install.
+    // Only claim that when config was actually inspected.
+    const unused =
+      rule.category === 'build-tooling' && configText !== '' && !configText.includes(name);
+
+    found.push({
+      name,
+      installed,
+      category: rule.category,
+      unused,
+      note: unused
+        ? `Declared but NOT referenced by any builder or executor in your build config. ` +
+          'It is dead weight pinning old Angular peers, and will fight the upgrade ' +
+          'install — remove it rather than upgrading it.'
+        : rule.note,
+    });
   }
 
   // Group by category, then alphabetically, so the output is stable and readable.

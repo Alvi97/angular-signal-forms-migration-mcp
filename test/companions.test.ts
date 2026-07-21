@@ -106,3 +106,39 @@ describe('rendering does not repeat itself', () => {
     expect(groups[0]?.names).toEqual(['zone.js']);
   });
 });
+
+/**
+ * Three dead dependencies were found in one session by checking whether anything actually
+ * referenced them. The tool said "check the builder supports your target" about
+ * @angular-builders/custom-webpack when the correct answer was "delete it — no builder
+ * config mentions it". Advice to evaluate something is worse than advice to remove it.
+ */
+describe('unreferenced build tooling', () => {
+  const manifest = { devDependencies: { '@angular-builders/custom-webpack': '^19.0.1' } };
+
+  it('marks a builder that no config references as unused', () => {
+    const configs = [
+      '{"projects":{"frontend":{"targets":{"build":{"executor":"@angular-devkit/build-angular:application"}}}}}',
+    ];
+    const found = detectCompanions(manifest, configs);
+    const builder = found.find((c) => c.name === '@angular-builders/custom-webpack');
+
+    expect(builder?.unused).toBe(true);
+    expect(builder?.note).toMatch(/not referenced|remove/i);
+  });
+
+  it('leaves a builder that IS referenced alone', () => {
+    const configs = [
+      '{"targets":{"build":{"executor":"@angular-builders/custom-webpack:browser"}}}',
+    ];
+    const found = detectCompanions(manifest, configs);
+    expect(found.find((c) => c.name === '@angular-builders/custom-webpack')?.unused).toBe(false);
+  });
+
+  it('does not guess when no config was supplied', () => {
+    // Without build config in hand, "unused" is unknowable — say nothing rather than
+    // recommend deleting a dependency.
+    const found = detectCompanions(manifest);
+    expect(found.find((c) => c.name === '@angular-builders/custom-webpack')?.unused).toBe(false);
+  });
+});

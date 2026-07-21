@@ -69,3 +69,40 @@ export function readInstalledPeer(
     return undefined;
   }
 }
+
+/**
+ * Build configs that name builders/executors, so an unreferenced dependency can be told
+ * apart from a used one.
+ *
+ * Best-effort and shallow: an unreadable or absent config yields nothing, which callers
+ * must treat as "unknown", never as "unused".
+ */
+export function readBuildConfigs(workspaceDir: string): string[] {
+  const found: string[] = [];
+
+  for (const name of ['angular.json', 'workspace.json', 'nx.json']) {
+    try {
+      found.push(readFileSync(join(workspaceDir, name), 'utf8'));
+    } catch {
+      // Absent is normal in an Nx workspace using per-project files.
+    }
+  }
+
+  // Per-project configs, one level down — the common Nx layout.
+  try {
+    for (const entry of readdirSync(workspaceDir, { withFileTypes: true })) {
+      if (!entry.isDirectory() || entry.name.startsWith('.') || entry.name === 'node_modules') {
+        continue;
+      }
+      try {
+        found.push(readFileSync(join(workspaceDir, entry.name, 'project.json'), 'utf8'));
+      } catch {
+        // Not every directory is a project.
+      }
+    }
+  } catch {
+    // Unreadable workspace root: return whatever was gathered.
+  }
+
+  return found;
+}

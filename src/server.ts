@@ -51,7 +51,12 @@ import {
 } from './core/types.js';
 import { VERIFIED_ANGULAR_VERSION } from './core/version.js';
 import { findPeerBlockers } from './core/peer-blockers.js';
-import { nodeFileSystem, readInstalledPeer, toAbsolute } from './infra/node-fs.js';
+import {
+  nodeFileSystem,
+  readBuildConfigs,
+  readInstalledPeer,
+  toAbsolute,
+} from './infra/node-fs.js';
 import { checkForUpdate } from './infra/update-notifier.js';
 
 /**
@@ -340,7 +345,7 @@ export function createServer(): McpServer {
       const markdown = buildUpgradeReport(
         plan,
         to >= MIN_SIGNAL_FORMS_VERSION,
-        detectCompanions(manifest),
+        detectCompanions(manifest, readBuildConfigs(manifestDir)),
         inferredOptions,
         { isNxWorkspace, peers },
       );
