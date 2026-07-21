@@ -157,9 +157,23 @@ describe('recipe content invariants', () => {
     }
   });
 
-  it('every "after" snippet imports from @angular/forms/signals', () => {
+  // A template recipe's `after` is HTML, not TypeScript, so it imports nothing. The two
+  // that document a non-conversion (select-multiple blocker, out-of-scope ngModel) are all
+  // comment. The rest bind [formField].
+  const isTemplateRecipe = (construct: string): boolean =>
+    construct === 'templateBindings' || construct.startsWith('Template.');
+
+  it('every TS "after" imports from @angular/forms/signals, and template afters bind [formField]', () => {
     for (const recipe of recipes) {
       if (!recipe.found) continue;
+      if (isTemplateRecipe(recipe.construct)) {
+        const isNonConversion =
+          recipe.construct === 'Template.selectMultiple' || recipe.construct === 'Template.ngModel';
+        if (!isNonConversion) {
+          expect(recipe.after, recipe.construct).toContain('[formField]');
+        }
+        continue;
+      }
       expect(recipe.after, recipe.construct).toContain('@angular/forms/signals');
     }
   });
@@ -169,7 +183,12 @@ describe('recipe content invariants', () => {
     // and model memory reproduces it — this guards against that regression.
     for (const recipe of recipes) {
       if (!recipe.found) continue;
-      expect(recipe.after, recipe.construct).not.toMatch(/\[control\]|\bControl\b/);
+      // Template recipes legitimately contain `<select>`/`<option>`/control words in HTML;
+      // the regression this guards is a pre-release Signal Forms DIRECTIVE named `[control]`.
+      expect(recipe.after, recipe.construct).not.toMatch(/\[control\]/);
+      if (!isTemplateRecipe(recipe.construct)) {
+        expect(recipe.after, recipe.construct).not.toMatch(/\bControl\b/);
+      }
     }
   });
 

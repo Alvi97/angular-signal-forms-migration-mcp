@@ -132,12 +132,11 @@ Rules that matter:
   differs across Angular versions and a fallback is given; UNVERIFIED means the docs did
   not confirm it. Recipes carry provenance — if the user's Angular differs, say so.
 
-- TEMPLATES ARE NOT SCANNED — .ts only, so totals are the Reactive Forms slice and
-  ngModel forms produce nothing. Each migrated component still needs its .html done:
-  formControlName -> [formField], and [formGroup] on the <form> -> [formRoot] (a
-  DIFFERENT directive; [formField] binds a control). errors?.['x'] -> getError('kind'),
-  with minlength/maxlength -> minLength/maxLength; a stale key fails SILENTLY, so take
-  the kind from the recipe.
+- TEMPLATES ARE SCANNED (.html) as a TOKEN scan, not an AST: it flags the binding sites
+  (Template.* findings -> templateBindings recipe) and leaves the structure to you, so
+  RE-RUN THE AOT BUILD after editing — the compiler is the real check on a template. A
+  template is "reference only" and migrates WITH its component. Inline templates in a .ts
+  template: string and CSS/SCSS are NOT scanned.
 
 - Migrate in the suggested order. A file owning no form only references one defined
   elsewhere and cannot move alone; shared validators gate every consumer, so settle
@@ -146,8 +145,8 @@ Rules that matter:
 
 - DO NOT INVENT API NAMES, in prose as well as in code. Signal Forms is too new to
   recall reliably, and one wrong name recurs: there is NO "Control" export — that is
-  pre-release naming. If you are about to name an API no recipe gave you, say you are
-  unsure instead.`;
+  pre-release naming; the directives are [formField] and [formRoot]. If you are about to
+  name an API no recipe gave you, say you are unsure instead.`;
 
 export function createServer(): McpServer {
   const server = new McpServer(
@@ -160,7 +159,7 @@ export function createServer(): McpServer {
     {
       title: 'Find Angular Reactive Forms migration candidates',
       description:
-        'Scans a .ts file or directory for Angular Reactive Forms constructs and classifies each ' +
+        'Scans .ts and .html files (or a directory) for Angular Reactive Forms constructs and classifies each ' +
         'finding as "mechanical" (safe to transliterate) or "judgment" (a human must decide the ' +
         'target design). Read-only: this tool never modifies your files.',
       inputSchema: findFormCandidatesInputSchema.shape,
@@ -219,7 +218,7 @@ export function createServer(): McpServer {
     {
       title: 'Summarise the size and shape of a Signal Forms migration',
       description:
-        'Scans a .ts file or directory and summarises the migration: total findings, counts per ' +
+        'Scans .ts and .html files (or a directory) and summarises the migration: total findings, counts per ' +
         'construct, the mechanical/judgment split, and a suggested file order (simplest first, ' +
         'so all-mechanical files land before the ones needing design decisions). ' +
         'Read-only: this tool never modifies your files.',
@@ -253,7 +252,7 @@ export function createServer(): McpServer {
     {
       title: 'Generate a Signal Forms migration report',
       description:
-        'Scans a .ts file or directory and returns a MARKDOWN REPORT combining findings, ' +
+        'Scans .ts and .html files (or a directory) and returns a MARKDOWN REPORT combining findings, ' +
         'complexity, a suggested file order, the constructs present with their recipe names, ' +
         'and a warning for any version-sensitive recipe involved. Returns the report as a ' +
         'string — it does NOT write a file; you decide whether to save it. ' +

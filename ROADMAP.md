@@ -126,16 +126,23 @@ milestone could take an optional `angularVersion` input.
   `formData.get()` and `map.get()` out of the report (verified against a real workspace: 38
   true positives, 0 false positives). The cost is that a form arriving through an unannotated
   intermediate — say `getForm().get('email')` — is missed.
-- **Template-driven forms are out of scope.** Files importing only `FormsModule` (`ngModel`)
-  produce no findings. That is correct for this tool's Reactive-Forms remit, but such files do
-  still need migrating; a workspace scan will under-report the total effort.
-- **Templates are not parsed.** `[formGroup]`, `formControlName` and friends live in
-  `.html` files, which this server does not read. The agent must update templates
-  using the recipe guidance.
+- **Template-driven forms have no documented migration.** `ngModel` bindings are now
+  flagged (`Template.ngModel`) but as OUT OF SCOPE: angular.dev documents no ngModel →
+  Signal Forms path, so the tool refuses to invent one.
 
-## Beyond M4
+**M7 — template (`.html`) scanning (done).** A quote-aware token scanner (`detect-template.ts`)
+now reports the Reactive Forms binding family (`formControlName`, `[formGroup]`,
+`formGroupName`, `formArrayName`, `[formControl]`), the `<select multiple>` blocker, the
+silent `minlength`/`maxlength` error-key rename, hardcoded native-attribute collisions
+(NG8022), and template-driven `ngModel`. `Template.*` findings resolve to the
+`templateBindings` recipe (plus focused recipes for arrays, the select blocker and ngModel),
+all verified against the v22 docs. It is a token scan, not an Angular AST — it flags binding
+sites and leaves structure to the agent, so the AOT build stays the real check. Templates
+sort as "reference only" and migrate with their component.
+
+## Beyond M7
 
 - Optional `ts.Program`-backed "deep" mode for projects that supply a tsconfig path.
-- Template (`.html`) scanning for `formControlName` / `[formGroup]` bindings.
+- Inline `template:` string scanning (currently only external `.html` is read).
 - Recipe coverage for `FormRecord`, `AbstractControl` subclassing, and cross-field
   validators.

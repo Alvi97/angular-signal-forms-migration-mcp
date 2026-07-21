@@ -176,8 +176,8 @@ and restart.
 
 ### `find_form_candidates`
 
-Scans a `.ts` file or a directory (recursively) and reports every Reactive Forms
-construct it finds.
+Scans `.ts` and `.html` files (or a directory, recursively) and reports every Reactive
+Forms construct it finds.
 
 ```jsonc
 { "path": "/abs/path/to/src/app" }
@@ -185,9 +185,13 @@ construct it finds.
 
 Returns one entry per file, each finding carrying `construct`, `line`, `snippet`, a
 `classification` of `"mechanical"` or `"judgment"`, and the `reason` for that call.
+Template findings use a `Template.` prefix (`Template.formControlName`, …) and resolve to
+the `templateBindings` recipe.
 
-`node_modules`, `dist`, `.angular` and `*.spec.ts` are skipped. Parsing uses the
-TypeScript compiler API, not regex.
+`node_modules`, `dist`, `.angular` and `*.spec.ts` are skipped. TypeScript parses with the
+compiler API; templates use a quote-aware token scan (not a full Angular AST), so re-run
+the AOT build after editing a template — the compiler is the real check. Inline `template:`
+strings and CSS/SCSS are not scanned.
 
 ### `get_signalforms_recipe`
 
@@ -298,14 +302,16 @@ core functions to the protocol.
 
 ## Status
 
-Feature-complete through M5: all four tools ship, with 25 doc-verified recipes covering
-basic constructs, arrays, runtime shape mutation, async validators, custom controls and
-the three RxJS stream tiers, and reading/writing form state.
+Feature-complete through M7: five tools ship, with doc-verified recipes covering basic
+constructs, arrays, runtime shape mutation, async validators, custom controls, the three
+RxJS stream tiers, reading/writing form state, submission, model-shape constraints, CSS
+status classes, spec-file migration, and the `.html` template layer (bindings, the
+`<select multiple>` blocker, and the silent error-key rename).
 
-See [ROADMAP.md](./ROADMAP.md) for what is deliberately **not** covered — chiefly
-template (`.html`) scanning, template-driven forms, and a `ts.Program`-backed deep mode.
-Those are real gaps, and the report says so in its own "Scope" section rather than
-letting the totals imply completeness.
+See [ROADMAP.md](./ROADMAP.md) for what is still deliberately **not** covered — inline
+`template:` strings, ngModel/template-driven migration (undocumented upstream), and a
+`ts.Program`-backed deep mode. Those are real gaps, and the report says so in its own
+"Scope" section rather than letting the totals imply completeness.
 
 ## License
 

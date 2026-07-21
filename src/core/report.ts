@@ -325,9 +325,8 @@ export function buildMigrationReport(
     lines.push('No Reactive Forms constructs were found under this path.');
     lines.push('');
     lines.push(
-      'Note that files importing only `FormsModule` (template-driven `ngModel`) are outside ' +
-        "this tool's remit and produce no findings, so this is not proof the path is free of " +
-        'forms.',
+      'Note this scans `.ts` and `.html`, but not inline `template:` strings — a component ' +
+        'whose whole form lives in an inline template would not be seen here.',
     );
     return lines.join('\n');
   }
@@ -476,10 +475,12 @@ export function buildMigrationReport(
 
   lines.push('## Scope of this report');
   lines.push('');
-  lines.push('- Only `.ts` files are parsed. Template bindings in `.html` are **not** covered —');
-  lines.push('  `[formGroup]`, `formControlName` and friends must be migrated alongside.');
-  lines.push('- Template-driven forms (`FormsModule` / `ngModel`) are out of scope and produce');
-  lines.push('  no findings, so the totals above are the Reactive Forms slice only.');
+  lines.push('- Both `.ts` and `.html` are scanned. Templates use a token scan (not an Angular');
+  lines.push('  AST), so it flags binding sites and leaves structure to you — **re-run the');
+  lines.push('  AOT build** after editing a template, as the compiler is the real check. Inline');
+  lines.push('  `template:` strings and CSS/SCSS are not scanned.');
+  lines.push('- Template-driven forms (`ngModel`) are flagged but OUT OF SCOPE: angular.dev');
+  lines.push('  documents no ngModel → Signal Forms migration path.');
   lines.push('- This server never edits code. Every change above is for you or your agent to');
   lines.push('  make and review.');
 

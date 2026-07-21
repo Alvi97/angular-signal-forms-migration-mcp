@@ -70,6 +70,8 @@ export const DOCS = {
   migration: 'https://angular.dev/guide/forms/signals/migration',
   formSubmission: 'https://angular.dev/guide/forms/signals/form-submission',
   fieldStateApi: 'https://angular.dev/api/forms/signals/FieldState',
+  formFieldApi: 'https://angular.dev/api/forms/signals/FormField',
+  formRootApi: 'https://angular.dev/api/forms/signals/FormRoot',
   validatorsApi: 'https://angular.dev/api/forms/Validators',
   templateExpressions: 'https://angular.dev/guide/templates/expression-syntax',
   rxjsInterop: 'https://angular.dev/ecosystem/rxjs-interop',
@@ -1536,6 +1538,167 @@ export class LoginComponent {
     },
   ],
   [
+    'templateBindings',
+    {
+      construct: 'templateBindings',
+      description:
+        'The template half of a migration, which the .ts scan never sees. The whole ' +
+        '`[formGroup]` / `formControlName` / `formGroupName` directive family is replaced by ' +
+        'one directive, `[formField]`, bound to a dotted path on the field tree — and the ' +
+        'error-display block changes shape with it.',
+      before: `<!-- component.ts: imports: [ReactiveFormsModule] -->
+<form [formGroup]="loginForm" (ngSubmit)="onSubmit()">
+  <input formControlName="email" />
+  @if (loginForm.get('email')?.errors?.['required']) {
+    <span>Email is required</span>
+  }
+  @if (loginForm.get('email')?.errors?.['minlength']) {
+    <span>Too short</span>
+  }
+
+  <div formGroupName="address">
+    <input formControlName="street" />
+  </div>
+
+  <input formControlName="code" [disabled]="isLocked" maxlength="6" />
+</form>`,
+      after: `<!-- component.ts: imports: [FormField, FormRoot]  (from '@angular/forms/signals') -->
+<!-- [formRoot] is OPTIONAL: it wires up submit() and novalidate for you. A bare
+     <form novalidate> that calls submit(this.f) by hand is equally valid. -->
+<form [formRoot]="f">
+  <input [formField]="f.email" />
+  <!-- Errors are an array of { kind, message }, read from the field. Match on kind;
+       the reactive-forms key 'minlength' is now 'minLength'. -->
+  @if (f.email().touched() && f.email().invalid()) {
+    @for (error of f.email().errors(); track error) {
+      <span>{{ error.message }}</span>
+    }
+  }
+
+  <!-- formGroupName disappears: nesting is just a longer dotted path. -->
+  <input [formField]="f.address.street" />
+
+  <!-- Drop [disabled] and the hardcoded maxlength: [formField] binds disabled/readonly
+       from the field's own state, and the maxLength() rule emits the native attribute
+       (a hand-written one fails a v22 AOT build, NG8022). -->
+  <input [formField]="f.code" />
+</form>`,
+      caveats: [
+        STABILITY,
+        'IMPORTS: swap `ReactiveFormsModule` for the standalone `FormField` directive in the ' +
+          "component's `imports: []` (and `FormRoot` if you use `[formRoot]`), both from " +
+          "'@angular/forms/signals'. This is a `.ts` edit the template change depends on.",
+        '`[formField]` binds a DOTTED PATH on the field tree, not a name: `formControlName=' +
+          '"email"` becomes `[formField]="f.email"`, and `formGroupName="a"` + ' +
+          '`formControlName="b"` collapse to `[formField]="f.a.b"`. No `.value`, no `.fieldTree` ' +
+          '(that suffix is only for a compat SignalFormControl).',
+        'ERROR DISPLAY CHANGES SHAPE. Reactive Forms exposed a keyed object ' +
+          "(`errors?.['required']`); Signal Forms exposes an array of `{ kind, message }` on " +
+          '`field().errors()`. The documented idiom gates on `touched() && invalid()` and ' +
+          'either shows `errors()[0].message` or iterates `@for (error of field().errors(); ' +
+          'track error)`. `message` is optional, so supply your own text when it is absent.',
+        'The error KEY is also renamed for two rules: `minlength`/`maxlength` become ' +
+          '`minLength`/`maxLength`. A template still matching the old key compiles and ' +
+          'silently never fires — this is the one template change with no visible symptom.',
+        'DELETE hand-written `[disabled]` and `[readonly]` on a bound control: "the ' +
+          '`[formField]` directive automatically binds the `disabled`/`readonly` attribute ' +
+          "based on the field's state, so you don't need to manually add it.\" Drive them " +
+          'from `disabled()` / `readonly()` rules in the schema instead.',
+        'DELETE hardcoded `required`/`min`/`max`/`minlength`/`maxlength` attributes on a bound ' +
+          'control — the matching rule emits the native attribute itself, and a hand-written ' +
+          'copy fails a v22 AOT build with NG8022 (UNVERIFIED wording — NG8022 has no ' +
+          'angular.dev page; observed in a real build).',
+        'This tool does not parse templates as an AST — it flags the bindings and leaves the ' +
+          'surrounding structure to you. Re-run your AOT build after editing: the compiler is ' +
+          'the real check on a template, not this scan.',
+      ],
+      sources: [DOCS.fieldState, DOCS.formFieldApi, DOCS.formRootApi, DOCS.essentials],
+    },
+  ],
+  [
+    'Template.formArrayName',
+    {
+      construct: 'Template.formArrayName',
+      description:
+        'A `formArrayName` block with a `*ngFor`/`@for` inside iterates the field array ' +
+        'directly, and the tracking expression is the part that has to change carefully.',
+      before: `<div formArrayName="emails">
+  @for (ctrl of emails.controls; track i; let i = $index) {
+    <input [formControlName]="i" />
+  }
+</div>`,
+      after: `<!-- No array wrapper directive. Iterate the field array and bind each field. -->
+@for (field of f.emails; track field) {
+  <input [formField]="field" />
+}`,
+      caveats: [
+        STABILITY,
+        'TRACK BY FIELD IDENTITY, not by index. The docs are explicit: "a `@for` block over a ' +
+          'set of fields should be tracked by field identity" — `track field`, because "the ' +
+          'forms system is already… maintaining a stable identity of the fields it creates ' +
+          'automatically". `track $index` or `track i` misbinds inputs after an insert, ' +
+          'remove or reorder.',
+        'The array itself is a plain array in the model signal (see the FormArray recipe); ' +
+          'this recipe is only the template half.',
+      ],
+      sources: [DOCS.fieldState],
+    },
+  ],
+  [
+    'Template.selectMultiple',
+    {
+      construct: 'Template.selectMultiple',
+      description:
+        'A `<select multiple>` bound to a form control is a documented dead end: the ' +
+        '[formField] directive does not support it, so this control cannot be migrated as-is.',
+      before: `<select multiple formControlName="tags">
+  @for (tag of allTags; track tag) { <option [value]="tag">{{ tag }}</option> }
+</select>`,
+      after: `<!-- No mechanical conversion exists. Options, in order of preference:
+     1. Keep this ONE control on Reactive Forms (interop), migrating the rest.
+     2. Write a custom FormValueControl<string[]> that wraps a multi-select.
+     3. Redesign as a list of checkboxes, one boolean field each.
+     Decide before starting — a half-migrated form with a stuck control is worse. -->`,
+      caveats: [
+        STABILITY,
+        'DOCUMENTED BLOCKER, quoted from the essentials guide: "Multiple select ' +
+          '(`<select multiple>`) is not supported by the `[formField]` directive at this ' +
+          'time." A single `<select>` is fine; only the `multiple` variant is blocked.',
+        'Find them before you begin: `grep -rn "select" --include=*.html | grep multiple`. ' +
+          'Discovering this half-way through a migration is the expensive path.',
+        'A single-value `<select>` migrates normally — `formControlName` becomes `[formField]`; ' +
+          'the essentials guide shows a bound `<select>` with `@for` options.',
+      ],
+      sources: [DOCS.essentials, DOCS.customControls],
+    },
+  ],
+  [
+    'Template.ngModel',
+    {
+      construct: 'Template.ngModel',
+      description:
+        'ngModel is TEMPLATE-DRIVEN forms, not Reactive Forms. angular.dev documents no ' +
+        'migration path from ngModel to Signal Forms, so this is out of scope for a Reactive ' +
+        'Forms migration.',
+      before: `<input [(ngModel)]="user.email" name="email" required />`,
+      after: `<!-- NOT_STATED: the Signal Forms migration guide covers Reactive Forms interop only
+     (compatForm / SignalFormControl) and gives no ngModel path. This is a rewrite, not a
+     mechanical migration: model the field in a signal and bind [formField], the same as any
+     new Signal Forms control — but that is a design decision, so do not treat it as
+     in-scope for a Reactive-to-Signal pass. -->`,
+      caveats: [
+        STABILITY,
+        'NOT_STATED — no documented ngModel → Signal Forms migration. The migration guide is ' +
+          'entirely about Reactive Forms interop. If a file mixes ngModel and Reactive Forms, ' +
+          'migrate the Reactive Forms parts and leave the template-driven controls, or treat ' +
+          'their rewrite as separate net-new work.',
+        'The Comparison guide still lists template-driven forms as a supported choice, so ' +
+          'staying on ngModel for those controls is legitimate, not technical debt.',
+      ],
+      sources: [DOCS.migration, DOCS.overview],
+    },
+  ],
+  [
     'testing',
     {
       construct: 'testing',
@@ -2171,6 +2334,27 @@ const ALIASES: ReadonlyMap<string, string> = new Map([
   ['test', 'testing'],
   ['tests', 'testing'],
   ['unittest', 'testing'],
+  // Template bindings. The directive family collapses to [formField], so they share the
+  // flagship recipe; the array, select-multiple and ngModel cases have their own.
+  ['template.formcontrolname', 'templateBindings'],
+  ['template.formcontrol', 'templateBindings'],
+  ['template.formgroup', 'templateBindings'],
+  ['template.formgroupname', 'templateBindings'],
+  ['template.nativeattribute', 'templateBindings'],
+  ['template.errorkeyrename', 'templateBindings'],
+  ['formcontrolname', 'templateBindings'],
+  ['formgroupname', 'templateBindings'],
+  ['formroot', 'templateBindings'],
+  ['formfield', 'templateBindings'],
+  ['template', 'templateBindings'],
+  ['templatebindings', 'templateBindings'],
+  ['template.formarrayname', 'Template.formArrayName'],
+  ['formarrayname', 'Template.formArrayName'],
+  ['template.selectmultiple', 'Template.selectMultiple'],
+  ['selectmultiple', 'Template.selectMultiple'],
+  ['select', 'Template.selectMultiple'],
+  ['template.ngmodel', 'Template.ngModel'],
+  ['ngmodel', 'Template.ngModel'],
   ['statusclasses', 'statusClasses'],
   ['ng-invalid', 'statusClasses'],
   ['ng-valid', 'statusClasses'],

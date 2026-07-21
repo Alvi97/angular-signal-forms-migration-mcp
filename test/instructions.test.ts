@@ -17,7 +17,7 @@ describe('server instructions', () => {
     ['judgment must not be downgraded', /judgment/i],
     ['caveats must be read', /caveats/i],
     ['version sensitivity', /VERSION-SENSITIVE|version-sensitive/],
-    ['templates are not covered', /\.html|template/i],
+    ['templates are scanned', /\.html|template/i],
     ['reference-only files', /reference|does not own a form/i],
     ['shared validators', /shared validator|validators/i],
   ])('covers %s', (_label, pattern) => {
@@ -85,21 +85,26 @@ describe('findings are not proven defects', () => {
 });
 
 /**
- * Only .ts is parsed, so the template half of every migration is the agent's problem — and
- * the one trap there is invisible. `minlength` became `minLength`; a template that keeps
- * the old key still compiles and simply never matches, so the error message disappears
- * with nothing to debug. Whoever trims these instructions must not trim this.
+ * Templates are scanned now (M7). The instructions previously carried the by-hand template
+ * facts — formControlName -> [formField], the silent minlength/maxLength rename — because
+ * the .ts scan could not see them. Those facts moved into the detector's own findings and
+ * the templateBindings recipe, which is where they belong; the instructions keep only the
+ * safety net that a token scan cannot replace.
+ *
+ * The one thing the instructions MUST still say: because it is a token scan, the AOT build
+ * is the real check. An agent that trusts the scan as complete will ship a broken template.
  */
-describe('the silent template trap is called out', () => {
-  it('names both renamed error keys', () => {
-    expect(SERVER_INSTRUCTIONS).toMatch(/minlength\/maxlength\s*->\s*minLength\/maxLength/);
+describe('the template safety net is stated', () => {
+  it('says templates are scanned', () => {
+    expect(SERVER_INSTRUCTIONS).toMatch(/TEMPLATES ARE SCANNED/);
   });
 
-  it('says the failure is silent', () => {
-    expect(SERVER_INSTRUCTIONS).toMatch(/fails\s+SILENTLY/);
+  it('tells the agent to re-run the AOT build, since the scan is not an AST', () => {
+    expect(SERVER_INSTRUCTIONS).toMatch(/AOT build/i);
+    expect(SERVER_INSTRUCTIONS).toMatch(/token scan|not an AST/i);
   });
 
-  it('points at getError rather than leaving the read to invention', () => {
-    expect(SERVER_INSTRUCTIONS).toContain("getError('kind')");
+  it('routes template findings to their recipe rather than restating the facts', () => {
+    expect(SERVER_INSTRUCTIONS).toContain('templateBindings');
   });
 });

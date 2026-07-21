@@ -74,10 +74,10 @@ describe('specs that use Reactive Forms are reported separately', () => {
           {
             construct: 'FormGroup',
             line: 1,
-            column: 1,
             snippet: 'new FormGroup({})',
             classification: 'mechanical',
             reason: 'r',
+            definesForm: true,
           },
         ],
       },
@@ -109,10 +109,10 @@ describe('specs that use Reactive Forms are reported separately', () => {
             {
               construct: 'FormGroup',
               line: 1,
-              column: 1,
               snippet: 'new FormGroup({})',
               classification: 'mechanical',
               reason: 'r',
+              definesForm: true,
             },
           ],
         },

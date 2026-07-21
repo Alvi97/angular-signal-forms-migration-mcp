@@ -13,6 +13,7 @@
  * and unit-testable without touching disk.
  */
 import ts from 'typescript';
+import { detectInTemplate } from './detect-template.js';
 import {
   err,
   ok,
@@ -59,10 +60,20 @@ const SKIPPED_DIRECTORIES: ReadonlySet<string> = new Set([
  * the ones using Reactive Forms separately, because they need rewriting too under different
  * rules (see the `testing` recipe). Excluding them from the count is a scoping decision;
  * staying silent about them was under-reporting the job.
+ *
+ * `.html` templates are scanned too — half of every migration lives there.
  */
 function isScannableFile(fileName: string): boolean {
+  if (fileName.endsWith('.html')) return true;
   if (!fileName.endsWith('.ts') || fileName.endsWith('.d.ts')) return false;
   return !fileName.endsWith('.spec.ts');
+}
+
+/** Routes a file to the right detector by extension: templates parse differently from code. */
+function detectInFile(filePath: string, text: string): Finding[] {
+  return filePath.endsWith('.html')
+    ? detectInTemplate(filePath, text)
+    : detectInSource(filePath, text);
 }
 
 function baseName(pathLike: string): string {
@@ -1402,7 +1413,7 @@ export function findFormCandidates(
     } catch {
       continue; // Unreadable single file: skip, keep scanning.
     }
-    const findings = detectInSource(file, text);
+    const findings = detectInFile(file, text);
     if (findings.length > 0) results.push({ file, findings });
   }
 
