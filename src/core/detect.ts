@@ -184,11 +184,14 @@ const CONTROL_WRITES_MECHANICAL: ReadonlySet<string> = new Set([
   'reset',
   'getRawValue',
   'hasError',
-  // These two DO exist on Signal Forms field state — verified by compiling them against
+  // These DO exist on Signal Forms field state — verified by compiling them against
   // @angular/forms v22. They were previously classified judgment on the false assumption
   // that all imperative state APIs were removed.
   'markAsTouched',
   'markAsDirty',
+  // markAsTouched() covers descendants by default, so this is a rename, not a redesign.
+  // Reported judgment until an agent read the typings and correctly called the advice stale.
+  'markAllAsTouched',
 ]);
 
 /**
@@ -196,7 +199,6 @@ const CONTROL_WRITES_MECHANICAL: ReadonlySet<string> = new Set([
  * become schema rules (disabled/applyWhen), submission, or nothing at all.
  */
 const CONTROL_WRITES_JUDGMENT: ReadonlySet<string> = new Set([
-  'markAllAsTouched',
   'markAsUntouched',
   'markAsPristine',
   'markAsPending',
@@ -702,13 +704,38 @@ function collectFromControlApi(
     node,
     classification: mechanical ? 'mechanical' : 'judgment',
     reason: mechanical
-      ? `${method}() writes through the form object. In Signal Forms the model signal is the ` +
-        'source of truth, so value writes go to the model (or to a field via ' +
-        'value.set()); reset() exists on field state and also clears touched/dirty.'
+      ? mechanicalWriteReason(method)
       : `${method}() has no Signal Forms counterpart. Interaction and validity state are ` +
         'DERIVED from schema rules and submission, not set imperatively, so this call is ' +
         'replaced by a rule (disabled/applyWhen), by submit(), or removed entirely.',
   });
+}
+
+/**
+ * Why a mechanical write is mechanical — and, for two of them, what quietly changes.
+ *
+ * Both notes come from migrations that hit them: `reset()` looks like a rename and is not,
+ * and `markAllAsTouched()` was reported as a redesign when it is a rename.
+ */
+function mechanicalWriteReason(method: string): string {
+  if (method === 'reset') {
+    return (
+      'reset() exists on field state, but it needs an argument to do what this call did. ' +
+      'Angular documents its value parameter as "if not passed, the value will not be ' +
+      'changed", so f().reset() clears touched/dirty and leaves the data. Write ' +
+      'f().reset({ ...INITIAL }) unless you only wanted the interaction state cleared.'
+    );
+  }
+  if (method === 'markAllAsTouched') {
+    return (
+      'markAllAsTouched() becomes f().markAsTouched(), which marks descendants by default. ' +
+      'Often it can go entirely: submit() marks every interactive field touched itself.'
+    );
+  }
+  return (
+    `${method}() writes through the form object. In Signal Forms the model signal is the ` +
+    'source of truth, so value writes go to the model (or to a field via value.set()).'
+  );
 }
 
 /** True for `new FormArray([])` — an array whose contents arrive later. */

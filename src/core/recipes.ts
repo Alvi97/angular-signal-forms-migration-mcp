@@ -66,6 +66,7 @@ export const DOCS = {
   customControls: 'https://angular.dev/guide/forms/signals/custom-controls',
   migration: 'https://angular.dev/guide/forms/signals/migration',
   formSubmission: 'https://angular.dev/guide/forms/signals/form-submission',
+  fieldStateApi: 'https://angular.dev/api/forms/signals/FieldState',
   rxjsInterop: 'https://angular.dev/ecosystem/rxjs-interop',
   schemas: 'https://angular.dev/guide/forms/signals/schemas',
   formBuilderApi: 'https://angular.dev/api/forms/FormBuilder',
@@ -132,6 +133,29 @@ function errorKind(kind: string, reactiveKey = kind): string {
     `\`field().getError('${kind}')\` — getError() is reactive and template-callable, so you ` +
     'do NOT need a computed() index or `errors().some(...)` (templates cannot take arrow ' +
     `functions). ${rename}`
+  );
+}
+
+/**
+ * The five rules that write their own native HTML attribute.
+ *
+ * Doc-confirmed twice: the validation guide's "Native HTML validation" section names
+ * required/min/max/minLength/maxLength as mirrored "when the element supports them", with
+ * pattern() the sole exception, and the form-logic guide repeats it via metadata keys.
+ *
+ * What is NOT documented is the consequence, so it is marked as such: a v22 AOT build
+ * refuses a hand-written copy of an attribute the directive owns.
+ */
+function nativeAttribute(attribute: string): string {
+  return (
+    `NATIVE ATTRIBUTE: on a bound native element this rule sets \`${attribute}\` itself. ` +
+    'Angular documents the mirroring (required/min/max/minlength/maxlength; pattern() is the ' +
+    'documented exception) but NOT what happens if you also write the attribute by hand. ' +
+    `UNVERIFIED — observed in a real v22 AOT build, not on angular.dev: a literal ` +
+    `\`${attribute}="..."\` left on the same element fails the build with NG8022, "Setting ` +
+    `the '${attribute}' attribute is not allowed on nodes using the '[formField]' directive". ` +
+    'There is no angular.dev/errors/NG8022 page to cite. Delete the hand-written attribute — ' +
+    'the rule emits it, so nothing is lost.'
   );
 }
 
@@ -400,6 +424,7 @@ readonly f = form(this.model, (path) => {
       caveats: [
         STABILITY,
         errorKind('required'),
+        nativeAttribute('required'),
         'VERSION-SENSITIVE emptiness rules. On v22, `null` and the empty string are missing ' +
           '(invalid), and `false` is ALSO missing, matching `<input type="checkbox" required>`. ' +
           'On v21 `false` PASSED. If the field can hold a boolean and you are on v21, express ' +
@@ -411,7 +436,7 @@ readonly f = form(this.model, (path) => {
         'The `message` option is optional; without it the error carries only `kind: "required"` ' +
           'and your template must map kinds to text itself.',
       ],
-      sources: [DOCS.validation],
+      sources: [DOCS.validation, DOCS.formLogic],
       versionSensitive: true,
     },
   ],
@@ -500,9 +525,10 @@ readonly f = form(this.model, (path) => {
       caveats: [
         STABILITY,
         errorKind('min'),
+        nativeAttribute('min'),
         'min() is for numeric values. For string or array length use minLength().',
       ],
-      sources: [DOCS.validation],
+      sources: [DOCS.validation, DOCS.formLogic],
     },
   ],
   [
@@ -521,9 +547,10 @@ readonly f = form(this.model, (path) => {
       caveats: [
         STABILITY,
         errorKind('max'),
+        nativeAttribute('max'),
         'max() is for numeric values. For string or array length use maxLength().',
       ],
-      sources: [DOCS.validation],
+      sources: [DOCS.validation, DOCS.formLogic],
     },
   ],
   [
@@ -544,10 +571,11 @@ readonly f = form(this.model, (path) => {
       caveats: [
         STABILITY,
         errorKind('minLength', 'minlength'),
+        nativeAttribute('minlength'),
         'minLength() also works on arrays, which makes `minLength(path.items, 1)` the correct ' +
           'way to demand a non-empty list — required() passes for an empty array.',
       ],
-      sources: [DOCS.validation],
+      sources: [DOCS.validation, DOCS.formLogic],
     },
   ],
   [
@@ -566,8 +594,10 @@ readonly f = form(this.model, (path) => {
       caveats: [
         STABILITY,
         errorKind('maxLength', 'maxlength'),
+        nativeAttribute('maxlength'),
         'Counts characters for strings and elements for arrays.',
       ],
+      sources: [DOCS.validation, DOCS.formLogic],
     },
   ],
   [
@@ -595,7 +625,7 @@ readonly f = form(this.model, (path) => {
           'required(), min(), max(), minLength() and maxLength() do set their native ' +
           'equivalents on supported elements; pattern() leaves `pattern` unset.',
       ],
-      sources: [DOCS.validation],
+      sources: [DOCS.validation, DOCS.formLogic],
     },
   ],
   [
@@ -1180,7 +1210,8 @@ readonly f = form(
     submission: {
       action: async (f) => {
         await this.api.save(this.model());
-        // reset() lives on field state and clears touched/dirty too.
+        // reset() clears touched/dirty. It does NOT clear the value unless you
+        // pass one, which reactive forms' reset() did for you.
         f().reset({ ...this.INITIAL });
       },
     },
@@ -1194,8 +1225,9 @@ load(user: User): void {
   this.f.email().value.set(user.email);
 }
 
-// markAllAsTouched() disappears: submit() marks every field touched for you,
-// which is the only reason that call usually existed.
+// markAllAsTouched() is usually deletable: submit() marks every interactive
+// field touched itself, which is the only reason that call existed. Where you
+// do still want it, f().markAsTouched() covers descendants by default.
 onSubmit(): void {
   submit(this.f);
 }`,
@@ -1209,12 +1241,25 @@ onSubmit(): void {
         'THESE DO EXIST on field state, contrary to a common assumption: `markAsTouched()` ' +
           '(which takes a `skipDescendants` option, defaulting to false so descendants are ' +
           'marked too) and `markAsDirty()`. Both compile against @angular/forms v22.',
-        'NO COUNTERPART: markAllAsTouched / markAsPristine / markAsPending / setErrors / ' +
+        'NO COUNTERPART: markAsUntouched / markAsPristine / markAsPending / setErrors / ' +
           'updateValueAndValidity / enable / disable / setValidators / addValidators / ' +
           'removeValidators. Verified absent by compiling each against v22 field state.',
-        '`markAllAsTouched()` has no direct equivalent, but is usually redundant anyway: ' +
-          'submit() (or the FormRoot directive) marks every field touched itself. If you do ' +
-          'need it explicitly, `f().markAsTouched()` marks descendants by default.',
+        '`markAllAsTouched()` IS covered — `f().markAsTouched()` marks descendants by default, ' +
+          'so the name changed but nothing was lost, and an ' +
+          '`Object.keys(form.controls).forEach(k => ...markAsTouched())` loop collapses to that ' +
+          'one call. Often you can drop it entirely: submit() (and the FormRoot directive) ' +
+          'marks every interactive field touched itself.',
+        'RESET TAKES AN ARGUMENT NOW. The FieldState API page documents reset() as "Resets ' +
+          'the touched and dirty state of the field and its descendants", and its value ' +
+          'parameter as "Optional value to set to the form. If not passed, the value will ' +
+          'NOT be changed." So `f().reset()` clears interaction state and leaves the data; ' +
+          '`f().reset({ ...INITIAL })` clears both, which is the form the field-state guide ' +
+          'shows under "Resetting forms after submission". A bare `form.reset()` translated ' +
+          'literally therefore leaves the old values on screen — pass the initial value.',
+        'INFERRED, not documented: that this DIFFERS from Reactive Forms, whose reset() ' +
+          'restored the initial value as well. angular.dev never contrasts the two — the ' +
+          'migration guide does not mention reset() at all — so treat the comparison as this ' +
+          "tool's reading of both APIs, and confirm against your own behaviour.",
         '`updateValueAndValidity()` has nothing to replace it — validation reruns ' +
           'automatically whenever a value a rule reads changes.',
         'enable()/disable() become the `disabled()` rule; setValidators()/addValidators() ' +

@@ -105,6 +105,9 @@ describe('writing form state', () => {
     // judgment on the assumption that every imperative state API had been removed.
     ['markAsTouched', 'mechanical'],
     ['markAsDirty', 'mechanical'],
+    // markAsTouched() marks descendants by default, so this is a rename. Reported as
+    // judgment until a migrating agent read the typings and called the advice stale.
+    ['markAllAsTouched', 'mechanical'],
   ])('classifies .%s() as %s', (method, expected) => {
     const findings = detectInSource(
       '/app/a.ts',
@@ -119,7 +122,8 @@ export class A {
   });
 
   it.each([
-    'markAllAsTouched',
+    'markAsUntouched',
+    'markAsPristine',
     'setErrors',
     'updateValueAndValidity',
     'enable',

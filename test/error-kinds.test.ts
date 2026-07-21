@@ -66,6 +66,43 @@ describe('every built-in validator recipe states its error kind', () => {
 });
 
 /**
+ * A real v22 AOT build failed with NG8022 because a hand-written maxlength="6" survived
+ * next to [formField] — the directive sets that attribute itself.
+ *
+ * The MIRRORING is documented ("Native HTML validation"). The BUILD FAILURE is not: there
+ * is no angular.dev/errors/NG8022 page and it is absent from the sitemap. So the advice is
+ * given, and marked UNVERIFIED, exactly as CLAUDE.md requires for anything the docs do not
+ * confirm. Erasing that marker to make the caveat read more confidently is the bug.
+ */
+describe('native attribute collision', () => {
+  const MIRRORED: readonly [string, string][] = [
+    ['Validators.required', 'required'],
+    ['Validators.min', 'min'],
+    ['Validators.max', 'max'],
+    ['Validators.minLength', 'minlength'],
+    ['Validators.maxLength', 'maxlength'],
+  ];
+
+  it.each(MIRRORED)('%s warns that the rule writes %s itself', (construct, attribute) => {
+    expect(caveatsFor(construct)).toContain(`this rule sets \`${attribute}\``);
+  });
+
+  it.each(MIRRORED)('%s names NG8022 as the failure mode', (construct) => {
+    expect(caveatsFor(construct)).toContain('NG8022');
+  });
+
+  it.each(MIRRORED)('%s marks the undocumented part UNVERIFIED', (construct) => {
+    expect(caveatsFor(construct)).toContain('UNVERIFIED');
+  });
+
+  it('does not claim it for pattern(), the documented exception', () => {
+    const caveats = caveatsFor('Validators.pattern');
+    expect(caveats).not.toContain('NG8022');
+    expect(caveats).toContain('does NOT mirror');
+  });
+});
+
+/**
  * `setErrors()` is how nearly every reactive login form reports "wrong password", and the
  * recipe used to answer it with "no counterpart — use validateHttp() or validateAsync()".
  * That is wrong twice: the docs never say it, and an async validator would call the sign-in
