@@ -1,7 +1,7 @@
 {
   "name": "angular-signal-forms-migration-mcp",
-  "version": "0.2.0",
-  "description": "MCP server that detects Angular Reactive Forms constructs and advises on migrating them to Angular Signal Forms (recipes verified against v22). Detect-and-advise only \u2014 never edits your code.",
+  "version": "0.3.0",
+  "description": "MCP server that detects Angular Reactive Forms constructs and advises on migrating them to Angular Signal Forms (recipes verified against v22). Detect-and-advise only — never edits your code.",
   "type": "module",
   "main": "dist/server.js",
   "bin": {
