@@ -9,7 +9,7 @@
  * A rewrite with no test underneath is not a blocker, but it changes how the work should
  * be sequenced — and it is knowable before a line is changed.
  */
-import type { FileSystemPort } from './detect.js';
+import { detectInSource, type FileSystemPort } from './detect.js';
 
 /**
  * Files that decide whether ANY spec in a project runs.
@@ -35,6 +35,16 @@ export interface CoverageReport {
   readonly brokenHarness: string[];
   /** Files that will be rewritten with nothing actually verifying them. */
   readonly unprotected: number;
+  /**
+   * Spec files that themselves use Reactive Forms, with how many constructs each contains.
+   *
+   * Specs are excluded from the migration counts on purpose — a spec cannot be "migrated
+   * first", so folding them into the totals would distort both the size and the ordering.
+   * But staying silent about them was its own dishonesty: a spec that builds a FormGroup and
+   * calls setValue/markAsTouched has to be rewritten too, under DIFFERENT rules (a form needs
+   * an injection context in a test, and setValue becomes value.set()). Reported separately.
+   */
+  readonly specsUsingForms: { readonly spec: string; readonly findings: number }[];
 }
 
 function parentOf(path: string): string | undefined {
@@ -71,6 +81,7 @@ export function assessCoverage(files: readonly string[], fs: FileSystemPort): Co
   const covered: string[] = [];
   const uncovered: string[] = [];
   const emptySpec: string[] = [];
+  const specsUsingForms: { spec: string; findings: number }[] = [];
   const brokenHarness = new Set<string>();
 
   for (const file of files) {
@@ -93,6 +104,9 @@ export function assessCoverage(files: readonly string[], fs: FileSystemPort): Co
 
     // A zero-byte or whitespace-only spec is worse than a missing one: tooling counts it
     // as present, so it reads as coverage right up until the suite fails to parse.
+    const specFindings = detectInSource(spec, contents).length;
+    if (specFindings > 0) specsUsingForms.push({ spec, findings: specFindings });
+
     if (contents.trim() === '') emptySpec.push(file);
     // A perfectly good spec under a broken harness still verifies nothing.
     else if (brokenHarnessFor(file, fs).length > 0) emptySpec.push(file);
@@ -106,5 +120,8 @@ export function assessCoverage(files: readonly string[], fs: FileSystemPort): Co
     total: files.length,
     brokenHarness: [...brokenHarness].sort((a, b) => a.localeCompare(b)),
     unprotected: uncovered.length + emptySpec.length,
+    specsUsingForms: specsUsingForms.sort(
+      (a, b) => b.findings - a.findings || a.spec.localeCompare(b.spec),
+    ),
   };
 }

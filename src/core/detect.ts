@@ -50,7 +50,16 @@ const SKIPPED_DIRECTORIES: ReadonlySet<string> = new Set([
   'coverage',
 ]);
 
-/** Angular spec files are excluded per SPEC.md — they test forms, they don't ship them. */
+/**
+ * Angular spec files are excluded from the migration counts per SPEC.md — they test forms,
+ * they don't ship them, and a spec cannot be migrated before the code it tests, so counting
+ * them would distort both the totals and the suggested order.
+ *
+ * They are NOT ignored: assessCoverage runs detection over each spec and the report lists
+ * the ones using Reactive Forms separately, because they need rewriting too under different
+ * rules (see the `testing` recipe). Excluding them from the count is a scoping decision;
+ * staying silent about them was under-reporting the job.
+ */
 function isScannableFile(fileName: string): boolean {
   if (!fileName.endsWith('.ts') || fileName.endsWith('.d.ts')) return false;
   return !fileName.endsWith('.spec.ts');
@@ -603,7 +612,9 @@ function collectFromControlGet(
     construct: `AbstractControl.${method}`,
     node,
     classification: literalKey ? 'mechanical' : 'judgment',
-    reason: literalKey ? (KEYED_LOOKUP_REASONS[method] ?? COMPUTED_KEY_REASON) : COMPUTED_KEY_REASON,
+    reason: literalKey
+      ? (KEYED_LOOKUP_REASONS[method] ?? COMPUTED_KEY_REASON)
+      : COMPUTED_KEY_REASON,
   });
 }
 

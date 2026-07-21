@@ -205,7 +205,8 @@ function coverageLines(
   root: string,
   byPath: ReadonlyMap<string, FileFindings>,
 ): string[] {
-  if (coverage === undefined || coverage.unprotected === 0) return [];
+  if (coverage === undefined) return [];
+  if (coverage.unprotected === 0 && coverage.specsUsingForms.length === 0) return [];
 
   const lines = ['## What is verifying this migration', ''];
 
@@ -253,6 +254,27 @@ function coverageLines(
     for (const file of coverage.uncovered) lines.push(withCounts(file));
     lines.push('');
   }
+
+  // Specs are excluded from the migration counts deliberately — a spec cannot be migrated
+  // "first", so counting them would distort both the totals and the ordering. Saying nothing
+  // about them was the wrong fix: they use the same APIs and have to be rewritten too, under
+  // rules that differ from production code.
+  if (coverage.specsUsingForms.length > 0) {
+    const total = coverage.specsUsingForms.reduce((sum, entry) => sum + entry.findings, 0);
+    lines.push('');
+    lines.push(
+      `**${String(coverage.specsUsingForms.length)} spec file(s) use Reactive Forms directly ` +
+        `(${String(total)} construct(s)), and are NOT counted above.** They need rewriting ` +
+        'too, and the rules differ from production code: a form needs an injection context ' +
+        'in a test, `setValue()` becomes `value.set()`, and `detectChanges()`/`tick()` ' +
+        'become `await fixture.whenStable()`. Ask for the `testing` recipe.',
+    );
+    lines.push('');
+    for (const entry of coverage.specsUsingForms) {
+      lines.push(`- \`${shortPath(entry.spec, root)}\` — ${String(entry.findings)} construct(s)`);
+    }
+  }
+
   return lines;
 }
 

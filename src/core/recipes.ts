@@ -58,6 +58,9 @@ export const DOCS = {
   essentials: 'https://angular.dev/essentials/signal-forms',
   overview: 'https://angular.dev/guide/forms/signals/overview',
   models: 'https://angular.dev/guide/forms/signals/models',
+  modelDesign: 'https://angular.dev/guide/forms/signals/model-design',
+  testing: 'https://angular.dev/guide/forms/signals/testing',
+  crossField: 'https://angular.dev/guide/forms/signals/cross-field-logic',
   validation: 'https://angular.dev/guide/forms/signals/validation',
   fieldState: 'https://angular.dev/guide/forms/signals/field-state-management',
   formLogic: 'https://angular.dev/guide/forms/signals/form-logic',
@@ -99,6 +102,7 @@ type RecipeDraft = Omit<Recipe, 'provenance'> & {
  */
 const SHARED_CAVEAT_SOURCES: readonly (readonly [string, string])[] = [
   ['STABILITY:', DOCS.overview],
+  ['MODEL SHAPE', DOCS.models],
   ['INCREMENTAL IS SUPPORTED', DOCS.migration],
 ];
 
@@ -199,6 +203,31 @@ function nativeAttribute(attribute: string): string {
  * The single structural fact behind most of these recipes, repeated because agents
  * apply recipes one at a time and will otherwise miss it.
  */
+/**
+ * What may and may not go in a model signal.
+ *
+ * Every recipe that turns a control into a model property needs these, and every one of
+ * them fails quietly: the model type-checks, the form builds, and a field is simply absent
+ * or an input is simply broken. `new FormControl()` producing `null` is the most common —
+ * it is the default in Reactive Forms and it is invalid for a text input here.
+ *
+ * Compiled in verify/src/model-and-context.ts, including a @ts-expect-error proving an
+ * optional property cannot be targeted by a rule.
+ */
+const MODEL_SHAPE =
+  "MODEL SHAPE — four documented rules, all of which fail SILENTLY. (1) Use `''`, not " +
+  '`null`, for text fields: "native text controls like <input type=text> and <textarea> ' +
+  "don't support null, use '' to represent an empty value\". `new FormControl()` and " +
+  '`fb.control(null)` both give you `null`, so the literal translation breaks the input. ' +
+  '(2) NO optional or undefined properties: "fields set to `undefined` are excluded from ' +
+  'the field tree", so reusing a DTO with `email?: string` drops the field and every rule ' +
+  'targeting it, with no error. Give every field an initial value. (3) NO class instances, ' +
+  'Map or Set in the structure — "not supported in the structural layer, even though ' +
+  'TypeScript will accept them"; a class instance "loses its prototype on the first write". ' +
+  '(4) Frozen or non-extensible objects inside arrays THROW, because Signal Forms assigns a ' +
+  'tracking symbol to preserve item identity — relevant to any codebase using Object.freeze ' +
+  'or NgRx strict immutability.';
+
 const MODEL_FIRST =
   'MODEL-FIRST: state lives in one model signal and form() derives a field tree from it, so ' +
   'a plain `form()` migration converts a whole form at once rather than one control at a ' +
@@ -273,9 +302,20 @@ export class Profile {
       caveats: [
         STABILITY,
         MODEL_FIRST,
+        MODEL_SHAPE,
         INCREMENTAL,
         IMPORT_FORMFIELD,
         'Template binding changes from `[formControl]="email"` to `[formField]="f.email"`.',
+        'BLOCKER TO CHECK BEFORE YOU START: "multiple select (`<select multiple>`) is not ' +
+          'supported by the `[formField]` directive at this time". Reactive Forms handles it ' +
+          'fine, so this is a control that cannot complete the migration — find them first ' +
+          '(`grep -rn "select multiple\\|<select[^>]*multiple" --include=*.html`) and decide ' +
+          'whether to keep those forms on Reactive Forms or write a custom ' +
+          'FormValueControl. Discovering it halfway through is much worse.',
+        'Some conversions the directive now does for you, so delete the workarounds rather ' +
+          'than porting them: number inputs convert between string and number themselves ' +
+          '(drop the `+value` / `parseFloat` / `map(Number)` plumbing), and radio buttons ' +
+          'sharing a `[formField]` get a matching `name` bound automatically.',
         'Read the value with `f.email().value()` and write it with `f.email().value.set(v)`; ' +
           'writing through the field also updates the model signal.',
         'The `nonNullable` option has no counterpart — the model signal’s TypeScript type ' +
@@ -284,7 +324,7 @@ export class Profile {
           'intricate RxJS pipeline), keep it and bridge it with `compatForm()` from ' +
           "'@angular/forms/signals/compat' rather than rewriting it.",
       ],
-      sources: [DOCS.essentials, DOCS.validation, DOCS.migration],
+      sources: [DOCS.essentials, DOCS.validation, DOCS.migration, DOCS.models],
     },
   ],
   [
@@ -329,6 +369,7 @@ export class Checkout {
       caveats: [
         STABILITY,
         MODEL_FIRST,
+        MODEL_SHAPE,
         INCREMENTAL,
         IMPORT_FORMFIELD,
         'Bind nested fields directly: `[formField]="f.address.street"`. There is no ' +
@@ -370,6 +411,7 @@ export class Signup {
       caveats: [
         STABILITY,
         MODEL_FIRST,
+        MODEL_SHAPE,
         INCREMENTAL,
         'INFERRED, not documented: delete the injection only after every `fb.group()` / ' +
           '`fb.control()` / `fb.array()` call in the class is migrated, or it will not ' +
@@ -418,6 +460,7 @@ export class Signup {
       caveats: [
         STABILITY,
         MODEL_FIRST,
+        MODEL_SHAPE,
         INCREMENTAL,
         IMPORT_FORMFIELD,
         'The `[value, validators]` array form splits in two: the value goes into the model ' +
@@ -461,6 +504,7 @@ export class Search {
       caveats: [
         STABILITY,
         MODEL_FIRST,
+        MODEL_SHAPE,
         INCREMENTAL,
         IMPORT_FORMFIELD,
         'A control that existed on its own now needs a model object to live in. Prefer folding ' +
@@ -886,6 +930,7 @@ removeRule(groupIndex: number, ruleIndex: number): void {
       caveats: [
         STABILITY,
         MODEL_FIRST,
+        MODEL_SHAPE,
         INCREMENTAL,
         'Mutation moves from the form to the model. `push()` / `removeAt()` become ' +
           '`model.update(...)` producing a NEW array — do not mutate the existing one in place, ' +
@@ -980,14 +1025,38 @@ export class Shipping {
           'parent validity — which is what lets hidden() stand in for removing a control. ' +
           'Note readonly is not fully inert: the docs say it prevents editing while still ' +
           'allowing focus and text selection.',
+        'BOTH REACTIVE BEHAVIOURS INVERT HERE, so check what the old code was relying on. ' +
+          'Reactive: a DISABLED control was excluded from `form.value` (hence getRawValue()) ' +
+          'but a control merely hidden by *ngIf KEPT VALIDATING and kept the form invalid — ' +
+          'the classic "invalid and I cannot see why", usually worked around with ' +
+          'removeControl() or setValidators(null). Signal Forms: the VALUE is preserved and ' +
+          'the VALIDATION is skipped, for all three states. Code ported from either ' +
+          'workaround now does the opposite of what it did.',
+        'hidden() does NOT hide anything by itself: "unlike disabled and readonly, there is ' +
+          'no native DOM property for hidden state. The [formField] directive does not apply ' +
+          'a hidden attribute to elements." Keep the @if in the template — the rule governs ' +
+          'validation and state, not rendering.',
+        'Non-interactive fields also never become touched or dirty from user interaction or ' +
+          'from markAsTouched(), so a form that reveals errors on touched() will skip them.',
         'VERSION-SENSITIVE rule signature. On v22 the condition is an options object: ' +
           '`hidden(path.x, { when: ctx => ... })`. On v21 it was a bare callback: ' +
           '`hidden(path.x, ctx => ...)`. Check your Angular version, or the rule will not ' +
           'compile.',
         'The imperative validator APIs are gone too: `addValidators()` / `setValidators()` ' +
           'become `applyWhen(path, condition, p => { required(p); })`.',
+        'THE SCHEMA FUNCTION RUNS ONCE. This is the single most expensive habit to carry ' +
+          'over. "When you pass a schema function to form(), that function runs once during ' +
+          'form creation" — only the RULE CALLBACKS are reactive. So an imperative-looking ' +
+          '`if (this.isPremium) { required(path.vatNumber); }` in the schema BODY compiles, ' +
+          'evaluates once at construction, and never updates. The condition belongs inside ' +
+          'the rule — `required(path.vatNumber, { when: () => this.isPremium() })` — or ' +
+          'inside applyWhen(). Nothing warns you; the form is just permanently wrong.',
+        'Model the shape STATICALLY. A model whose shape changes with its value "can cause ' +
+          'data loss"; the documented approach is one model containing every branch, with ' +
+          'the inactive branches hidden or disabled. For a discriminated union, ' +
+          'applyWhenValue() narrows the type as well as gating the rules.',
       ],
-      sources: [DOCS.formLogic, DOCS.fieldState, DOCS.migration],
+      sources: [DOCS.formLogic, DOCS.fieldState, DOCS.migration, DOCS.modelDesign, DOCS.schemas],
       versionSensitive: true,
     },
   ],
@@ -1467,6 +1536,83 @@ export class LoginComponent {
     },
   ],
   [
+    'testing',
+    {
+      construct: 'testing',
+      description:
+        'Specs need migrating too, and under different rules than production code. A ' +
+        'Reactive Forms spec builds a form with `new FormGroup({...})` and zero DI; a signal ' +
+        'form needs an injection context to construct at all, so every ported spec either ' +
+        'gets one or throws on the first line.',
+      before: `import { FormControl, FormGroup, Validators } from '@angular/forms';
+
+describe('LoginComponent', () => {
+  it('is invalid with a short password', () => {
+    const form = new FormGroup({
+      email: new FormControl('', [Validators.required, Validators.email]),
+      password: new FormControl('', [Validators.minLength(8)]),
+    });
+
+    form.setValue({ email: 'a@b.com', password: 'short' });
+
+    expect(form.invalid).toBe(true);
+    expect(form.get('password')?.hasError('minlength')).toBe(true);
+  });
+});`,
+      after: `import { Injector, signal } from '@angular/core';
+import { TestBed } from '@angular/core/testing';
+import { form, required, email, minLength } from '@angular/forms/signals';
+
+describe('LoginComponent', () => {
+  it('is invalid with a short password', () => {
+    const model = signal({ email: '', password: '' });
+
+    // The form needs an injection context. Either pass an injector...
+    const f = form(
+      model,
+      (path) => {
+        required(path.email);
+        email(path.email);
+        minLength(path.password, 8);
+      },
+      { injector: TestBed.inject(Injector) },
+    );
+    // ...or wrap the construction: TestBed.runInInjectionContext(() => form(...)).
+
+    model.set({ email: 'a@b.com', password: 'short' });
+
+    expect(f().invalid()).toBe(true);
+    // Note the kind: 'minLength', not the reactive 'minlength'.
+    expect(f.password().getError('minLength')).toBeDefined();
+  });
+});`,
+      caveats: [
+        STABILITY,
+        'THE INJECTION CONTEXT IS THE BLOCKER. "Signal Forms needs an injection context ' +
+          'during form creation." Pass `{ injector: TestBed.inject(Injector) }` to form(), or ' +
+          'build it inside `TestBed.runInInjectionContext(() => ...)`. A Reactive spec needed ' +
+          'neither, so this is the line that breaks first in every ported file.',
+        'Most specs no longer need a component fixture at all: "most forms only need isolated ' +
+          'tests… schemas do not need a template to run". If the old spec called ' +
+          'TestBed.createComponent purely to exercise validators, drop the fixture.',
+        'Writes in tests go through the signal: `f.name().value.set("Ada")`, or set the model ' +
+          'directly. `setValue`/`patchValue` on a control have no counterpart here.',
+        'For component-bound tests, `await fixture.whenStable()` replaces the ' +
+          'detectChanges()/tick()/fakeAsync dance, "including async validators or server ' +
+          'calls" — await it after the async work resolves.',
+        'Assertions move to signal calls and error KINDS: `form.invalid` becomes ' +
+          '`f().invalid()`, and `hasError("minlength")` becomes a match on kind `minLength`. ' +
+          'The casing change is silent — see the Validators.minLength recipe.',
+        'UNVERIFIED — the testing guide documents no test harness, no way to mark a field ' +
+          'touched in an isolated test, and no submit() recipe. If a spec depends on touched ' +
+          'state, drive it through a component fixture rather than inventing an API.',
+        'These files are deliberately EXCLUDED from the migration counts, because a spec ' +
+          'cannot be migrated before the code it tests. The report lists them separately.',
+      ],
+      sources: [DOCS.testing, DOCS.fieldState],
+    },
+  ],
+  [
     'statusClasses',
     {
       construct: 'statusClasses',
@@ -1855,6 +2001,7 @@ readonly f = form(this.model);
       caveats: [
         STABILITY,
         MODEL_FIRST,
+        MODEL_SHAPE,
         INCREMENTAL,
         'The dotted string path `get("address.street")` becomes real property access: ' +
           '`f.address.street`. There is no string-path lookup on the field tree.',
@@ -1913,14 +2060,26 @@ readonly f = form(this.model, (path) => {
           'Templates reading `errors.required` must move to `errors()` and match on `kind`.',
         'Return `null` (or `undefined`) for valid. Returning a falsy object still counts as ' +
           'an error.',
-        'Cross-field rules attach to a path and pull other values with `valueOf(path.other)`; ' +
-          'they re-run reactively when any field they read changes.',
+        'THE CONTEXT HAS THREE ACCESSORS, not one, and a group-level Reactive validator ' +
+          'usually needs more than the first. `valueOf(path.other)` is another field’s VALUE; ' +
+          '`stateOf(path.other)` is its STATE (so a rule can wait until a sibling is touched, ' +
+          'or read its validity); `fieldTreeOf(path.other)` is the field itself, which is how ' +
+          'you attach the error to a DIFFERENT field than the rule sits on. All three work ' +
+          'across the whole form, not just the scoped path.',
         'To validate a whole subtree, or to report an error against a DIFFERENT field than the ' +
           'one the rule is attached to, use `validateTree()` and set the error’s `fieldTree`.',
+        'WARNING, quoted: "be careful not to read state which depends on your field’s ' +
+          'validation, as that creates a circular loop. For example, a validator which checks ' +
+          'whether the parent field is valid will create an infinite loop." Reactive Forms ' +
+          'tolerated `group.valid` inside a validator because the pass was imperative; ported ' +
+          'literally, the same line hangs.',
+        'Decide WHERE the error goes — the docs make this an explicit judgment call: "place ' +
+          'the error where the user would most likely go to fix the problem". A Reactive ' +
+          'group-level validator had no choice and dumped it on the group; you now do.',
         'An ASYNC validator is not covered by this recipe — `validateHttp()` / `validateAsync()` ' +
           'land in M2. Do not force an AsyncValidatorFn through validate().',
       ],
-      sources: [DOCS.validation],
+      sources: [DOCS.validation, DOCS.crossField],
     },
   ],
 ];
@@ -2006,6 +2165,12 @@ const ALIASES: ReadonlyMap<string, string> = new Map([
   ['formsubmission', 'formSubmission'],
   // The ng-* class loss has no Reactive Forms *construct* to detect — it lives in CSS —
   // so these spellings are how an agent or a human reaches it.
+  ['testing', 'testing'],
+  ['spec', 'testing'],
+  ['specs', 'testing'],
+  ['test', 'testing'],
+  ['tests', 'testing'],
+  ['unittest', 'testing'],
   ['statusclasses', 'statusClasses'],
   ['ng-invalid', 'statusClasses'],
   ['ng-valid', 'statusClasses'],
