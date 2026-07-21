@@ -74,8 +74,58 @@ function errorResult(message: string): CallToolResult {
   return { content: [{ type: 'text', text: message }], isError: true };
 }
 
+/**
+ * Sent to the client at handshake and injected into the calling agent's context.
+ *
+ * This is the server's only channel for shaping HOW its output is used. Everything here
+ * is a rule that is expensive to get wrong and that an agent will otherwise get wrong by
+ * default — chiefly: treating a judgment finding as a rename, and starting a migration
+ * the project cannot compile. A README does not reach the model; this does.
+ *
+ * Kept to a checklist. It competes for context with the user's actual task.
+ */
+export const SERVER_INSTRUCTIONS = `This server DETECTS and ADVISES on migrating Angular Reactive Forms to Signal Forms.
+It never edits code. You make every edit, and the user reviews it.
+
+Use it in this order:
+1. get_migration_report (or analyze_migration_complexity) for the whole picture.
+2. find_form_candidates for the exact edit sites in one file.
+3. get_signalforms_recipe per construct, before writing any replacement code.
+
+Rules that matter:
+
+- CHECK THE PREREQUISITE FIRST. If the report opens with a BLOCKING PREREQUISITE, or
+  analyze_migration_complexity returns a non-null blockingPrerequisite, the project's
+  Angular is too old for @angular/forms/signals and NO recipe will compile. Tell the user
+  to upgrade; do not start migrating.
+
+- NEVER treat a "judgment" finding as mechanical. Judgment means the shape changes and a
+  human decides the design. Ask, or present options — do not pick one silently. Some
+  constructs have NO equivalent at all (addControl/removeControl, switchMap pipelines,
+  enumerating form.controls); the recipe says so, and inventing an API is the worst
+  outcome available.
+
+- READ THE CAVEATS on every recipe before using its "after" snippet. Anything marked
+  VERSION-SENSITIVE behaves differently across Angular versions and carries a
+  version-independent fallback. Anything marked UNVERIFIED is not confirmed by the docs.
+
+- TEMPLATES ARE NOT SCANNED. Only .ts is parsed. Every migrated component also needs its
+  .html updated ([formGroup]/formControlName -> [formField]), and template-driven forms
+  (ngModel) produce no findings at all. The totals are the Reactive Forms slice only.
+
+- Migrate in the suggested order. Files reported as not owning a form hold only a
+  reference to one defined elsewhere and cannot be migrated alone — move them together
+  with whichever file defines that form. Shared validator files own no
+  form but gate every consumer, so settle their error shape early.
+
+- Recipes are verified against a specific Angular version and carry provenance (source
+  URLs and date). If the user's version differs, say so rather than assuming.`;
+
 export function createServer(): McpServer {
-  const server = new McpServer({ name: SERVER_NAME, version: SERVER_VERSION });
+  const server = new McpServer(
+    { name: SERVER_NAME, version: SERVER_VERSION },
+    { instructions: SERVER_INSTRUCTIONS },
+  );
 
   server.registerTool(
     'find_form_candidates',
