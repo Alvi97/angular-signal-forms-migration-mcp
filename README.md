@@ -93,8 +93,8 @@ to confirm anything current or project-specific before it edits.
 Requires Node.js 20+.
 
 ```bash
-git clone https://github.com/<your-user>/signal-forms-migration-mcp.git
-cd signal-forms-migration-mcp
+git clone https://github.com/Alvi97/angular-signal-forms-migration-mcp.git
+cd angular-signal-forms-migration-mcp
 npm install
 npm run build
 ```
