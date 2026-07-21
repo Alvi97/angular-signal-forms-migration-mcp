@@ -48,6 +48,52 @@
  * ============================================================================
  */
 import type { Recipe, RecipeLookup } from './types.js';
+import { VERIFIED_ANGULAR_VERSION } from './version.js';
+
+/** The date the docs below were retrieved. Bump whenever a recipe is re-verified. */
+const RETRIEVED_ISO = '2026-07-21';
+
+/** Every angular.dev page these recipes were derived from, named so sources read clearly. */
+export const DOCS = {
+  essentials: 'https://angular.dev/essentials/signal-forms',
+  overview: 'https://angular.dev/guide/forms/signals/overview',
+  models: 'https://angular.dev/guide/forms/signals/models',
+  validation: 'https://angular.dev/guide/forms/signals/validation',
+  fieldState: 'https://angular.dev/guide/forms/signals/field-state-management',
+  formLogic: 'https://angular.dev/guide/forms/signals/form-logic',
+  asyncOperations: 'https://angular.dev/guide/forms/signals/async-operations',
+  dynamicJson: 'https://angular.dev/guide/forms/signals/dynamic-forms-with-json',
+  customControls: 'https://angular.dev/guide/forms/signals/custom-controls',
+  migration: 'https://angular.dev/guide/forms/signals/migration',
+} as const;
+
+/** Pages that establish the core model/form()/schema shape every recipe rests on. */
+const CORE_SOURCES: readonly string[] = [DOCS.essentials, DOCS.validation];
+
+/**
+ * A recipe as authored. Provenance is assembled by `withProvenance` so the version and
+ * retrieval date can never drift between recipes, and so a recipe physically cannot be
+ * added without a source list.
+ */
+type RecipeDraft = Omit<Recipe, 'provenance'> & {
+  /** Doc URLs this specific recipe came from. Defaults to CORE_SOURCES. */
+  readonly sources?: readonly string[];
+  /** Set when behaviour differs across Angular versions; caveats must explain how. */
+  readonly versionSensitive?: boolean;
+};
+
+function withProvenance(draft: RecipeDraft): Recipe {
+  const { sources, versionSensitive, ...recipe } = draft;
+  return {
+    ...recipe,
+    provenance: {
+      verifiedAgainstVersion: VERIFIED_ANGULAR_VERSION,
+      retrievedISO: RETRIEVED_ISO,
+      sources: [...(sources ?? CORE_SOURCES)],
+      versionSensitive: versionSensitive ?? false,
+    },
+  };
+}
 
 /**
  * Attached to every recipe. v22 dropped v21's "experimental" banner but still stops short
@@ -77,7 +123,7 @@ const IMPORT_FORMFIELD =
  * Keys match the `construct` values emitted by `detectInSource`, so the output of
  * `find_form_candidates` can be fed straight into `get_signalforms_recipe`.
  */
-const RECIPES: ReadonlyMap<string, Recipe> = new Map<string, Recipe>([
+const RECIPE_DRAFTS: ReadonlyArray<readonly [string, RecipeDraft]> = [
   [
     'FormControl',
     {
@@ -125,6 +171,7 @@ export class Profile {
           'intricate RxJS pipeline), keep it and bridge it with `compatForm()` from ' +
           "'@angular/forms/signals/compat' rather than rewriting it.",
       ],
+      sources: [DOCS.essentials, DOCS.validation, DOCS.migration],
     },
   ],
   [
@@ -179,6 +226,7 @@ export class Checkout {
         'Hidden, disabled and readonly fields are non-interactive and do NOT contribute to ' +
           'parent validity — a required-but-hidden field will not block submission.',
       ],
+      sources: [DOCS.essentials, DOCS.models, DOCS.fieldState],
     },
   ],
   [
@@ -209,6 +257,7 @@ export class Signup {
         'Delete the injection only after every `fb.group()` / `fb.control()` / `fb.array()` ' +
           'call in the class has been migrated, or the class will not compile.',
       ],
+      sources: [DOCS.essentials, DOCS.overview],
     },
   ],
   [
@@ -255,6 +304,7 @@ export class Signup {
           'signal, the validators become rules in the schema function.',
         'A group containing `fb.array(...)` is NOT covered here — array migration lands in M2.',
       ],
+      sources: [DOCS.essentials, DOCS.validation, DOCS.models],
     },
   ],
   [
@@ -293,6 +343,7 @@ export class Search {
         'A control that existed on its own now needs a model object to live in. Prefer folding ' +
           'it into the surrounding form’s model over creating a one-property model.',
       ],
+      sources: [DOCS.essentials, DOCS.validation],
     },
   ],
   [
@@ -312,9 +363,10 @@ readonly f = form(this.model, (path) => {
 });`,
       caveats: [
         STABILITY,
-        'v22 emptiness rules: `null` and the empty string are missing (invalid); `false` is ' +
-          'ALSO missing, matching `<input type="checkbox" required>`. This differs from v21, ' +
-          'where `false` passed. See the Validators.requiredTrue recipe.',
+        'VERSION-SENSITIVE emptiness rules. On v22, `null` and the empty string are missing ' +
+          '(invalid), and `false` is ALSO missing, matching `<input type="checkbox" required>`. ' +
+          'On v21 `false` PASSED. If the field can hold a boolean and you are on v21, express ' +
+          'the check with `validate()` instead — see the Validators.requiredTrue recipe.',
         'required() PASSES for an empty array. Use `minLength(path.items, 1)` to require at ' +
           'least one element.',
         'For a conditionally required field use the `when` option instead of swapping validators: ' +
@@ -322,6 +374,8 @@ readonly f = form(this.model, (path) => {
         'The `message` option is optional; without it the error carries only `kind: "required"` ' +
           'and your template must map kinds to text itself.',
       ],
+      sources: [DOCS.validation],
+      versionSensitive: true,
     },
   ],
   [
@@ -358,6 +412,8 @@ readonly f = form(this.model, (path) => {
           'missing. This recipe follows the prose note, which is the more specific statement. ' +
           'Worth confirming against the behaviour of your installed @angular/forms.',
       ],
+      sources: [DOCS.validation],
+      versionSensitive: true,
     },
   ],
   [
@@ -380,6 +436,7 @@ readonly f = form(this.model, (path) => {
         'Validation does not short-circuit: every rule on a field runs on every change, so ' +
           '`errors()` can hold more than one entry.',
       ],
+      sources: [DOCS.validation],
     },
   ],
   [
@@ -404,6 +461,7 @@ readonly f = form(this.model, (path) => {
         STABILITY,
         'min() is for numeric values. For string or array length use minLength().',
       ],
+      sources: [DOCS.validation],
     },
   ],
   [
@@ -423,6 +481,7 @@ readonly f = form(this.model, (path) => {
         STABILITY,
         'max() is for numeric values. For string or array length use maxLength().',
       ],
+      sources: [DOCS.validation],
     },
   ],
   [
@@ -445,6 +504,7 @@ readonly f = form(this.model, (path) => {
         'minLength() also works on arrays, which makes `minLength(path.items, 1)` the correct ' +
           'way to demand a non-empty list — required() passes for an empty array.',
       ],
+      sources: [DOCS.validation],
     },
   ],
   [
@@ -487,6 +547,7 @@ readonly f = form(this.model, (path) => {
           'required(), min(), max(), minLength() and maxLength() do set their native ' +
           'equivalents on supported elements; pattern() leaves `pattern` unset.',
       ],
+      sources: [DOCS.validation],
     },
   ],
   [
@@ -516,6 +577,7 @@ readonly f = form(this.model, (path) => {
         'Every rule runs on every change and each can contribute an error, so `errors()` may ' +
           'hold several entries at once. Reactive Forms merged them into one error object.',
       ],
+      sources: [DOCS.validation],
     },
   ],
   [
@@ -565,6 +627,7 @@ readonly f = form(this.model);
           'is a typed object, not a string-keyed map, so the surrounding code must be ' +
           'redesigned — that is why the detector classifies it as judgment.',
       ],
+      sources: [DOCS.essentials, DOCS.models, DOCS.fieldState],
     },
   ],
   [
@@ -618,9 +681,20 @@ readonly f = form(this.model, (path) => {
         'An ASYNC validator is not covered by this recipe — `validateHttp()` / `validateAsync()` ' +
           'land in M2. Do not force an AsyncValidatorFn through validate().',
       ],
+      sources: [DOCS.validation],
     },
   ],
-]);
+];
+
+/**
+ * Verified before/after recipes, keyed by canonical construct name.
+ *
+ * Keys match the `construct` values emitted by `detectInSource`, so the output of
+ * `find_form_candidates` can be fed straight into `get_signalforms_recipe`.
+ */
+const RECIPES: ReadonlyMap<string, Recipe> = new Map(
+  RECIPE_DRAFTS.map(([construct, draft]) => [construct, withProvenance(draft)]),
+);
 
 /**
  * Spellings a caller might reasonably use, mapped to a canonical RECIPES key.
@@ -662,6 +736,16 @@ function normalise(construct: string): string {
     .replace(/\(\s*\)$/, '')
     .trim()
     .toLowerCase();
+}
+
+/** Every recipe, for auditing. Order follows `availableConstructs()`. */
+export function allRecipes(): readonly Recipe[] {
+  return availableConstructs().map((construct) => {
+    const recipe = RECIPES.get(construct);
+    // Unreachable: availableConstructs() is derived from RECIPES' own keys.
+    if (recipe === undefined) throw new Error(`missing recipe for ${construct}`);
+    return recipe;
+  });
 }
 
 /** Canonical construct names this server has a recipe for, sorted for stable output. */

@@ -21,17 +21,43 @@ means recipes written from memory are wrong in ways that look right.
 
 Every recipe in `src/core/recipes.ts` was verified against **Angular v22** using the
 official Angular CLI MCP server (`npx @angular/cli mcp`), cross-checked against
-angular.dev. The file's header comment records the version, the verification date, and
-every doc URL used. Anything that could not be confirmed is labelled
-`UNVERIFIED — confirm on angular.dev` in its `caveats`.
+angular.dev. Anything that could not be confirmed is labelled
+`UNVERIFIED — confirm on <url>` in its `caveats`.
 
-Two things this caught that memory gets wrong:
+Provenance is **structured and required** — no recipe can exist without it:
+
+```jsonc
+"provenance": {
+  "verifiedAgainstVersion": 22,
+  "retrievedISO": "2026-07-21",
+  "sources": ["https://angular.dev/guide/forms/signals/validation"],
+  "versionSensitive": true
+}
+```
+
+It ships in the tool response, so the calling agent can judge how current the advice is.
+A CI test fails the build on any recipe with an empty `sources` list.
+
+```bash
+npm run docs:audit   # every recipe + version + date + sources; exits non-zero if stale
+```
+
+The target version lives in exactly one place, `src/core/version.ts`. Upgrading to a new
+Angular release starts by changing that line and running the audit — see
+[REVERIFICATION.md](./REVERIFICATION.md) for the full procedure.
+
+Things this caught that memory gets wrong:
 
 - The binding directive is `[formField]` / `FormField` — **not** `[control]` / `Control`,
   which appeared in pre-release v21 material and is what models tend to reproduce.
 - `required()` treats `false` as missing on **v22** but as present on **v21**. That flips
-  `Validators.requiredTrue` between a one-line rename and a rewrite. Recipes whose
-  behaviour differs across releases say so and give a version-independent fallback.
+  `Validators.requiredTrue` between a one-line rename and a rewrite.
+- `disabled()` / `hidden()` take an options object (`{ when: … }`) on v22, but a bare
+  callback on v21.
+
+Recipes whose behaviour differs across releases carry a `VERSION-SENSITIVE` caveat **and**
+a version-independent fallback, because this server does not read your installed Angular
+version and so cannot choose for you.
 
 Recipes carry a `caveats` array. Read it — that is where the sharp edges live.
 

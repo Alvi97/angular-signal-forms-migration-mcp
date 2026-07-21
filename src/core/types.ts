@@ -94,6 +94,26 @@ export type FileFindings = z.infer<typeof fileFindingsSchema>;
 /* Recipes                                                                     */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * Where a recipe's syntax came from.
+ *
+ * Required on every recipe — a recipe without a source is indistinguishable from one
+ * written out of a model's memory, which is exactly the failure mode this project keeps
+ * hitting. `npm run docs:audit` reads these fields to turn a version upgrade into a
+ * checklist instead of an archaeology exercise.
+ */
+export const provenanceSchema = z.object({
+  /** Angular major version whose docs were read, e.g. 22. */
+  verifiedAgainstVersion: z.number().int().positive(),
+  /** ISO date (YYYY-MM-DD) the docs were retrieved. */
+  retrievedISO: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  /** Exact doc URLs consulted. Must be non-empty — see the CI test. */
+  sources: z.array(z.string().url()).min(1),
+  /** True when behaviour differs across Angular versions; the caveats must say how. */
+  versionSensitive: z.boolean(),
+});
+export type Provenance = z.infer<typeof provenanceSchema>;
+
 export const recipeSchema = z.object({
   construct: z.string(),
   description: z.string(),
@@ -102,9 +122,10 @@ export const recipeSchema = z.object({
   /**
    * Anything the agent must not assume. A recipe whose syntax could not be
    * confirmed against official docs MUST carry
-   * `"UNVERIFIED — confirm on angular.dev"` here.
+   * `"UNVERIFIED — confirm on <exact URL>"` here.
    */
   caveats: z.array(z.string()),
+  provenance: provenanceSchema,
 });
 export type Recipe = z.infer<typeof recipeSchema>;
 
@@ -160,6 +181,8 @@ export const getSignalFormsRecipeOutputSchema = z.object({
   before: z.string().optional(),
   after: z.string().optional(),
   caveats: z.array(z.string()).optional(),
+  /** Surfaced to the agent so it can judge how current the advice is. */
+  provenance: provenanceSchema.optional(),
   availableConstructs: z.array(z.string()).optional(),
 });
 export type GetSignalFormsRecipeOutput = z.infer<typeof getSignalFormsRecipeOutputSchema>;
