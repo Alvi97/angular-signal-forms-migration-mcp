@@ -110,43 +110,42 @@ export const SERVER_INSTRUCTIONS = `This server DETECTS and ADVISES on migrating
 It never edits code. You make every edit, and the user reviews it.
 
 Order: get_migration_report for the picture, find_form_candidates for one file's edit
-sites, get_signalforms_recipe per construct before writing replacement code. When the
-project is below v21, get_angular_upgrade_plan gives the upgrade that must come first.
+sites, get_signalforms_recipe per construct before writing code. Below v21,
+get_angular_upgrade_plan gives the upgrade that must come first.
 
 Rules that matter:
 
-- CHECK THE PREREQUISITE FIRST. If the report opens with a BLOCKING PREREQUISITE, or
-  analyze_migration_complexity returns a non-null blockingPrerequisite, the project's
-  Angular is too old for @angular/forms/signals and NO recipe will compile. Do not
-  migrate; use get_angular_upgrade_plan instead.
+- CHECK THE PREREQUISITE FIRST. A BLOCKING PREREQUISITE in the report, or a non-null
+  blockingPrerequisite from analyze_migration_complexity, means the project's Angular is
+  too old for @angular/forms/signals and NO recipe will compile. Do not migrate; use
+  get_angular_upgrade_plan.
+
+- A FINDING IS A SHAPE MATCH, NOT A PROVEN DEFECT. This parses text; it cannot see
+  runtime behaviour, and frameworks have fallbacks a parser cannot model. Before telling
+  anyone their code is broken, prove it with a failing test. If that test passes on
+  unmodified code, there was nothing to fix — say so and move on.
 
 - NEVER treat a "judgment" finding as mechanical. Judgment means the shape changes and a
   human decides the design. Ask, or present options — do not pick one silently. Some
-  constructs have NO equivalent at all (addControl/removeControl, switchMap pipelines,
-  enumerating form.controls); the recipe says so, and inventing an API is the worst
-  outcome available.
+  constructs have NO equivalent (addControl/removeControl, switchMap pipelines,
+  enumerating form.controls); inventing an API is the worst outcome available.
 
 - READ THE CAVEATS before using any "after" snippet. VERSION-SENSITIVE means behaviour
   differs across Angular versions and a fallback is given; UNVERIFIED means the docs did
-  not confirm it. Recipes carry provenance (version, source URLs, date) — if the user's
-  Angular differs from it, say so rather than assuming.
+  not confirm it. Recipes carry provenance — if the user's Angular differs, say so.
 
-- TEMPLATES ARE NOT SCANNED. Only .ts is parsed, so every migrated component also needs
+- TEMPLATES ARE NOT SCANNED. Only .ts is parsed, so each migrated component also needs
   its .html updated ([formGroup]/formControlName -> [formField]), and template-driven
-  forms (ngModel) produce no findings. The totals are the Reactive Forms slice only.
+  forms (ngModel) produce no findings. Totals are the Reactive Forms slice only.
 
-- Migrate in the suggested order. Files reported as not owning a form hold only a
-  reference to one defined elsewhere and cannot be migrated alone — move them together
-  with whichever file defines that form. Shared validator files own no
-  form but gate every consumer, so settle their error shape early.
+- Migrate in the suggested order. Files reported as not owning a form only reference one
+  defined elsewhere and cannot be migrated alone. Shared validator files own no form but
+  gate every consumer, so settle their error shape early.
 
-
-- DO NOT INVENT API NAMES, including when explaining rather than writing code. Use only
-  what the recipes give you. Signal Forms is too new to recall reliably, and one wrong
-  name recurs: there is NO "Control" export — that is pre-release naming, and it does not
-  exist in v21+. The binding directive is FormField / [formField]; the form element
-  directive is FormRoot / [formRoot]. If you are about to name an API that did not come
-  from a recipe, say you are unsure instead.`;
+- DO NOT INVENT API NAMES, when explaining as well as when writing code. Signal Forms is
+  too new to recall reliably, and one wrong name recurs: there is NO "Control" export —
+  that is pre-release naming. It is FormField / [formField] and FormRoot / [formRoot]. If
+  you are about to name an API no recipe gave you, say you are unsure instead.`;
 
 export function createServer(): McpServer {
   const server = new McpServer(

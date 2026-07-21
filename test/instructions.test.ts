@@ -59,3 +59,27 @@ describe('suppresses the known API hallucination', () => {
     expect(SERVER_INSTRUCTIONS).toMatch(/do not invent|only.*names.*recipes|from the recipes/i);
   });
 });
+
+/**
+ * An operator read the source, confirmed the SHAPE matched, and told the user they had a
+ * security hole — mismatched passwords accepted. The shape did match. The behaviour did
+ * not: FormBuilder maps the legacy key at runtime.
+ *
+ * "I read the file, the bug is real" conflates confirming a shape with proving a defect.
+ * The recipe now says verify; the instructions need the general rule, because the same
+ * confusion applies to every finding this server emits.
+ */
+describe('findings are not proven defects', () => {
+  it('says a finding is a shape match', () => {
+    expect(SERVER_INSTRUCTIONS).toMatch(/shape match|does not prove|not a proven/i);
+  });
+
+  it('tells the agent to prove a defect before reporting one', () => {
+    expect(SERVER_INSTRUCTIONS).toMatch(/failing test|prove it|verify/i);
+  });
+
+  it('names the tell: a test that passes unmodified means there was nothing to fix', () => {
+    // The text wraps, so match across whitespace rather than assuming one line.
+    expect(SERVER_INSTRUCTIONS).toMatch(/passes\s+on\s+unmodified/i);
+  });
+});
