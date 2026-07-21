@@ -581,6 +581,254 @@ readonly f = form(this.model, (path) => {
     },
   ],
   [
+    'FormArray',
+    {
+      construct: 'FormArray',
+      description:
+        'A FormArray becomes a plain array inside the model signal. Per-item validation is ' +
+        'applied with applyEach(), and items are added or removed by updating the model ' +
+        'signal — there is no array control object to push to.',
+      before: `import { FormArray, FormControl, FormGroup, Validators } from '@angular/forms';
+
+export class Order {
+  readonly form = new FormGroup({
+    title: new FormControl('', Validators.required),
+    items: new FormArray([
+      new FormGroup({
+        name: new FormControl('', Validators.required),
+        quantity: new FormControl(1, Validators.min(1)),
+      }),
+    ]),
+  });
+
+  addItem() {
+    this.form.controls.items.push(
+      new FormGroup({ name: new FormControl(''), quantity: new FormControl(1) }),
+    );
+  }
+
+  removeItem(index: number) {
+    this.form.controls.items.removeAt(index);
+  }
+}`,
+      after: `// order.ts
+import { Component, signal } from '@angular/core';
+import { applyEach, form, FormField, min, required } from '@angular/forms/signals';
+import type { SchemaPathTree } from '@angular/forms/signals';
+
+interface Item {
+  name: string;
+  quantity: number;
+}
+
+// A reusable per-item schema keeps the rules readable.
+function ItemSchema(item: SchemaPathTree<Item>) {
+  required(item.name, { message: 'Item name is required' });
+  min(item.quantity, 1, { message: 'Quantity must be at least 1' });
+}
+
+@Component({
+  selector: 'app-order',
+  templateUrl: './order.html',
+  imports: [FormField],
+})
+export class Order {
+  readonly model = signal({
+    title: '',
+    items: [{ name: '', quantity: 1 }] as Item[],
+  });
+
+  readonly f = form(this.model, (path) => {
+    required(path.title);
+    applyEach(path.items, ItemSchema);
+  });
+
+  // Add and remove by updating the MODEL, not the form.
+  addItem() {
+    this.model.update((current) => ({
+      ...current,
+      items: [...current.items, { name: '', quantity: 1 }],
+    }));
+  }
+
+  removeItem(index: number) {
+    this.model.update((current) => ({
+      ...current,
+      items: current.items.filter((_, i) => i !== index),
+    }));
+  }
+}`,
+      caveats: [
+        STABILITY,
+        MODEL_FIRST,
+        'Mutation moves from the form to the model. `push()` / `removeAt()` become ' +
+          '`model.update(...)` producing a NEW array — do not mutate the existing one in place, ' +
+          'or the signal will not notify.',
+        'Iterate with `@for (item of f.items; track item)` and bind `[formField]="item"`. ' +
+          'Track by FIELD IDENTITY, not by index or by a value: the forms system already keeps ' +
+          'stable identities for array items, and tracking wrongly makes inputs share state.',
+        'Reach a single item in code by index: `f.items[0].name` — the field tree mirrors the ' +
+          'model, so array access is real indexing.',
+        'required() PASSES for an empty array. To demand at least one item use ' +
+          '`minLength(path.items, 1)`.',
+        'Objects in an array automatically receive tracking identities, so field state ' +
+          '(touched, dirty, validation) survives reordering.',
+      ],
+      sources: [DOCS.validation, DOCS.dynamicJson, DOCS.models, DOCS.fieldState],
+    },
+  ],
+  [
+    'dynamicControls',
+    {
+      construct: 'dynamicControls',
+      description:
+        'addControl / removeControl / setControl / registerControl have NO Signal Forms ' +
+        'equivalent. The field tree is derived from the model signal’s type, so a form whose ' +
+        'shape changes at runtime must express that shape as data or as conditional rules.',
+      before: `import { FormControl, FormGroup, Validators } from '@angular/forms';
+
+export class Shipping {
+  readonly form = new FormGroup({
+    requiresShipping: new FormControl(false),
+  });
+
+  toggleShipping(enabled: boolean) {
+    if (enabled) {
+      this.form.addControl('address', new FormControl('', Validators.required));
+    } else {
+      this.form.removeControl('address');
+    }
+  }
+}`,
+      after: `import { Component, signal } from '@angular/core';
+import { form, FormField, hidden, required } from '@angular/forms/signals';
+
+@Component({
+  selector: 'app-shipping',
+  templateUrl: './shipping.html',
+  imports: [FormField],
+})
+export class Shipping {
+  // The field always EXISTS in the model; its relevance is what varies.
+  readonly model = signal({
+    requiresShipping: false,
+    address: '',
+  });
+
+  readonly f = form(this.model, (path) => {
+    hidden(path.address, { when: ({ valueOf }) => !valueOf(path.requiresShipping) });
+    required(path.address);
+  });
+}
+
+// Template — a hidden field does not participate in validation, so the
+// required() rule above cannot block submission while shipping is off:
+//   @if (!f.address().hidden()) {
+//     <input [formField]="f.address" />
+//   }`,
+      caveats: [
+        STABILITY,
+        'This is a DESIGN CHANGE, not a rename. Do not look for an addControl() equivalent — ' +
+          'there is none, and inventing one will not typecheck.',
+        'Choose by intent: a field that comes and goes is a permanent model field gated with ' +
+          '`hidden()`; a group of rules that applies conditionally is `applyWhen()`; a ' +
+          'genuinely variable-length list is an array in the model (see the FormArray recipe).',
+        'Hidden, disabled and readonly fields are non-interactive and do NOT contribute to ' +
+          'parent validity — which is exactly what makes hidden() a safe substitute for ' +
+          'removing a control.',
+        'VERSION-SENSITIVE rule signature. On v22 the condition is an options object: ' +
+          '`hidden(path.x, { when: ctx => ... })`. On v21 it was a bare callback: ' +
+          '`hidden(path.x, ctx => ...)`. Check your Angular version, or the rule will not ' +
+          'compile.',
+        'The imperative validator APIs are gone too: `addValidators()` / `setValidators()` ' +
+          'become `applyWhen(path, condition, p => { required(p); })`.',
+      ],
+      sources: [DOCS.formLogic, DOCS.fieldState, DOCS.migration],
+      versionSensitive: true,
+    },
+  ],
+  [
+    'asyncValidator',
+    {
+      construct: 'asyncValidator',
+      description:
+        'An AsyncValidatorFn becomes validateHttp() (for HTTP checks) or validateAsync() ' +
+        '(for anything else) declared inside the schema. Async rules run only after every ' +
+        'synchronous rule passes, and in-flight requests cancel automatically on change.',
+      before: `import { AbstractControl, AsyncValidatorFn, ValidationErrors } from '@angular/forms';
+import { map } from 'rxjs/operators';
+
+export function uniqueUsername(api: Api): AsyncValidatorFn {
+  return (control: AbstractControl) =>
+    api.checkUsername(control.value).pipe(
+      map((available) => (available ? null : { usernameTaken: true })),
+    );
+}
+
+readonly username = new FormControl('', {
+  validators: [Validators.required],
+  asyncValidators: [uniqueUsername(this.api)],
+});`,
+      after: `import { Component, signal } from '@angular/core';
+import { form, FormField, minLength, required, validateHttp } from '@angular/forms/signals';
+
+@Component({
+  selector: 'app-registration',
+  templateUrl: './registration.html',
+  imports: [FormField],
+})
+export class Registration {
+  readonly model = signal({ username: '' });
+
+  readonly f = form(this.model, (path) => {
+    // Synchronous rules run first; the request only fires once they pass.
+    required(path.username);
+    minLength(path.username, 3);
+
+    validateHttp(path.username, {
+      // Throttle just this request; other rules still react immediately.
+      debounce: 300,
+      request: ({ value }) => {
+        const username = value();
+        // Returning undefined skips the request entirely.
+        return username ? \`/api/users/check?username=\${username}\` : undefined;
+      },
+      onSuccess: (response) =>
+        response.available
+          ? null
+          : { kind: 'usernameTaken', message: 'Username is already taken' },
+      onError: () => ({
+        kind: 'serverError',
+        message: 'Could not verify username availability',
+      }),
+    });
+  });
+}
+
+// Template — pending() covers the in-flight window:
+//   @if (f.username().pending()) { <span>Checking availability...</span> }`,
+      caveats: [
+        STABILITY,
+        'Execution order changed and it matters: async rules run ONLY after all synchronous ' +
+          'rules pass. Validation that used to fire on every keystroke now cannot.',
+        'While a request is in flight, `pending()` is true and BOTH `valid()` and `invalid()` ' +
+          'are false, and `errors()` is empty. Use `invalid()` rather than `!valid()`, or ' +
+          'pending states will read as failures.',
+        'Cancellation is automatic — a value change aborts the in-flight request. Delete any ' +
+          'switchMap/takeUntil plumbing that existed to do this by hand.',
+        'Prefer validateHttp() for REST checks. Reach for validateAsync() only for non-HTTP ' +
+          'sources (WebSocket, IndexedDB) or custom caching/retry; it exposes the resource ' +
+          'primitive directly and costs more code.',
+        'An Observable-returning service still works: use rxResource() from ' +
+          "'@angular/core/rxjs-interop' as the validateAsync() factory. Subscriptions are " +
+          'cleaned up for you.',
+        '`submit()` waits for pending async validation, so a submit handler does not need to ' +
+          'poll for completion itself.',
+      ],
+      sources: [DOCS.asyncOperations, DOCS.validation],
+    },
+  ],
+  [
     'AbstractControl.get',
     {
       construct: 'AbstractControl.get',
@@ -717,6 +965,28 @@ const ALIASES: ReadonlyMap<string, string> = new Map([
   ['maxlength', 'Validators.maxLength'],
   ['pattern', 'Validators.pattern'],
   ['compose', 'Validators.compose'],
+  ['formarray', 'FormArray'],
+  ['fb.array', 'FormArray'],
+  ['formbuilder.array', 'FormArray'],
+  // Every shape-mutating method resolves to the one design-change recipe.
+  ['formgroup.addcontrol', 'dynamicControls'],
+  ['formgroup.removecontrol', 'dynamicControls'],
+  ['formgroup.setcontrol', 'dynamicControls'],
+  ['formgroup.registercontrol', 'dynamicControls'],
+  ['addcontrol', 'dynamicControls'],
+  ['removecontrol', 'dynamicControls'],
+  ['setcontrol', 'dynamicControls'],
+  ['registercontrol', 'dynamicControls'],
+  ['dynamiccontrols', 'dynamicControls'],
+  ['formarray.push', 'FormArray'],
+  ['formarray.removeat', 'FormArray'],
+  ['formarray.insert', 'FormArray'],
+  ['formarray.clear', 'FormArray'],
+  ['formarray.setcontrol', 'FormArray'],
+  ['asyncvalidatorfn', 'asyncValidator'],
+  ['asyncvalidators', 'asyncValidator'],
+  ['validatehttp', 'asyncValidator'],
+  ['validateasync', 'asyncValidator'],
   ['get', 'AbstractControl.get'],
   ['.get', 'AbstractControl.get'],
   ['abstractcontrol.get', 'AbstractControl.get'],

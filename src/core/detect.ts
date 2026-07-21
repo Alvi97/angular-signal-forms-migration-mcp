@@ -98,8 +98,32 @@ const CONTROL_TYPES: ReadonlySet<string> = new Set([
   'AbstractControl',
 ]);
 
-/** Control types M1 reports when they appear in type position. FormArray lands in M2. */
-const REPORTED_CONTROL_TYPES: ReadonlySet<string> = new Set(['FormGroup', 'FormControl']);
+/** Control types reported when they appear in type position. */
+const REPORTED_CONTROL_TYPES: ReadonlySet<string> = new Set([
+  'FormGroup',
+  'FormControl',
+  'FormArray',
+]);
+
+/**
+ * Methods that mutate a form's SHAPE at runtime. Signal Forms derives its field tree from
+ * the model signal's type, so there is no equivalent imperative surface — the shape must
+ * be expressed in the model instead. Always judgment.
+ */
+const GROUP_MUTATORS: ReadonlySet<string> = new Set([
+  'addControl',
+  'removeControl',
+  'setControl',
+  'registerControl',
+]);
+
+const ARRAY_MUTATORS: ReadonlySet<string> = new Set([
+  'push',
+  'removeAt',
+  'insert',
+  'clear',
+  'setControl',
+]);
 
 /* -------------------------------------------------------------------------- */
 /* Per-file detection                                                          */
@@ -134,6 +158,7 @@ export function detectInSource(filePath: string, text: string): Finding[] {
   const names: BoundNames = {
     formBuilders: collectFormBuilderNames(sourceFile),
     forms: collectFormLikeNames(sourceFile),
+    mutated: collectMutatedNames(sourceFile),
   };
   const drafts: FindingDraft[] = [];
 
@@ -170,6 +195,50 @@ interface BoundNames {
   readonly formBuilders: ReadonlySet<string>;
   /** Names holding a form object, so `form.get('k')` is distinguishable from `map.get('k')`. */
   readonly forms: ReadonlySet<string>;
+  /** Names whose shape is mutated at runtime — those forms cannot be a static model. */
+  readonly mutated: ReadonlySet<string>;
+}
+
+/**
+ * Names that have a shape-mutating method called on them anywhere in the file.
+ *
+ * A `new FormArray([...])` that is only ever read is a plain list in the model signal.
+ * One that is pushed to is a dynamic structure, and the migration is a design decision
+ * rather than a rename — so the declaration itself has to be downgraded to judgment.
+ */
+function collectMutatedNames(sourceFile: ts.SourceFile): ReadonlySet<string> {
+  const names = new Set<string>();
+
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+      const method = declaredName(node.expression.name);
+      if (method !== undefined && (GROUP_MUTATORS.has(method) || ARRAY_MUTATORS.has(method))) {
+        const receiver = node.expression.expression;
+        const name = ts.isIdentifier(receiver)
+          ? receiver.text
+          : ts.isPropertyAccessExpression(receiver) &&
+              receiver.expression.kind === ts.SyntaxKind.ThisKeyword
+            ? declaredName(receiver.name)
+            : undefined;
+        if (name !== undefined) names.add(name);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(sourceFile, visit);
+
+  return names;
+}
+
+/** The name a `new X(...)` expression is being assigned to, if any. */
+function assignedName(node: ts.Node): string | undefined {
+  const parent: ts.Node | undefined = node.parent;
+  if (parent === undefined) return undefined;
+  if (ts.isPropertyDeclaration(parent) || ts.isVariableDeclaration(parent)) {
+    return declaredName(parent.name);
+  }
+  if (ts.isPropertyAssignment(parent)) return declaredName(parent.name);
+  return undefined;
 }
 
 /**
@@ -271,12 +340,17 @@ function isInjectFormBuilder(node: ts.Node): boolean {
 
 function collectFromNode(node: ts.Node, names: BoundNames, out: FindingDraft[]): void {
   if (ts.isNewExpression(node)) {
-    collectFromNewExpression(node, out);
+    collectFromNewExpression(node, names, out);
     return;
   }
   if (ts.isCallExpression(node)) {
     collectFromFormBuilderCall(node, names.formBuilders, out);
     collectFromControlGet(node, names.forms, out);
+    collectFromShapeMutation(node, names.forms, out);
+    return;
+  }
+  if (ts.isPropertyAssignment(node)) {
+    collectFromAsyncValidatorsOption(node, out);
     return;
   }
   if (ts.isPropertyAccessExpression(node)) {
@@ -324,6 +398,66 @@ function collectFromControlGet(
   });
 }
 
+/** True for `new FormArray([])` — an array whose contents arrive later. */
+function isEmptyArrayArgument(node: ts.NewExpression): boolean {
+  const [first] = node.arguments ?? [];
+  return first !== undefined && ts.isArrayLiteralExpression(first) && first.elements.length === 0;
+}
+
+/**
+ * `form.addControl(...)`, `items.push(...)` and friends — imperative reshaping of a form.
+ *
+ * Signal Forms has no equivalent: the field tree is derived from the model signal's type,
+ * so a form whose shape changes at runtime has to be re-expressed as data in the model
+ * (an array you update, or a field made conditional with hidden()/applyWhen()).
+ */
+function collectFromShapeMutation(
+  node: ts.CallExpression,
+  formNames: ReadonlySet<string>,
+  out: FindingDraft[],
+): void {
+  const callee = node.expression;
+  if (!ts.isPropertyAccessExpression(callee)) return;
+
+  const method = declaredName(callee.name);
+  if (method === undefined) return;
+
+  const isGroupMutator = GROUP_MUTATORS.has(method);
+  const isArrayMutator = ARRAY_MUTATORS.has(method);
+  if (!isGroupMutator && !isArrayMutator) return;
+
+  // Without this gate, any `push` in a forms file would be reported.
+  if (!isKnownReceiver(callee.expression, formNames)) return;
+
+  // `setControl` exists on both; attribute it to the array only when the receiver is not
+  // group-shaped, which we cannot know without a TypeChecker — so prefer the group name.
+  const owner = isGroupMutator ? 'FormGroup' : 'FormArray';
+
+  out.push({
+    construct: `${owner}.${method}`,
+    node,
+    classification: 'judgment',
+    reason:
+      `${method}() reshapes the form at runtime. Signal Forms derives its field tree from ` +
+      'the model signal, so there is no imperative equivalent — the shape must become data ' +
+      'in the model (a list you update, or a field gated by hidden()/applyWhen()).',
+  });
+}
+
+/** `new FormControl('', { asyncValidators: [...] })` and the fb.group equivalent. */
+function collectFromAsyncValidatorsOption(node: ts.PropertyAssignment, out: FindingDraft[]): void {
+  if (declaredName(node.name) !== 'asyncValidators') return;
+  out.push({
+    construct: 'asyncValidator',
+    node,
+    classification: 'judgment',
+    reason:
+      'Async validation is expressed declaratively in Signal Forms with validateHttp() or ' +
+      'validateAsync() inside the schema, and only runs once synchronous rules pass. The ' +
+      'validator body, its error shape and its cancellation behaviour all change.',
+  });
+}
+
 /**
  * A custom validator that is NOT annotated `ValidatorFn` — the shape real code uses for
  * cross-field checks, e.g. `passwordMatchValidator(group: FormGroup)`. Missing these makes
@@ -362,7 +496,8 @@ function collectCustomValidatorDeclaration(
 function hasValidatorAncestor(node: ts.Node): boolean {
   for (let parent = node.parent; parent !== undefined; parent = parent.parent) {
     if (!ts.isFunctionLike(parent)) continue;
-    if (typeReferenceName(parent.type) === 'ValidatorFn') return true;
+    const returnType = typeReferenceName(parent.type);
+    if (returnType === 'ValidatorFn' || returnType === 'AsyncValidatorFn') return true;
     if (parent.parameters.some((p) => typeReferenceName(p.type) === 'AbstractControl')) return true;
   }
   return false;
@@ -381,9 +516,34 @@ function typeReferenceName(type: ts.TypeNode | undefined): string | undefined {
   return ts.isIdentifier(type.typeName) ? type.typeName.text : undefined;
 }
 
-function collectFromNewExpression(node: ts.NewExpression, out: FindingDraft[]): void {
+function collectFromNewExpression(
+  node: ts.NewExpression,
+  names: BoundNames,
+  out: FindingDraft[],
+): void {
   if (!ts.isIdentifier(node.expression)) return;
   const constructName = node.expression.text;
+
+  if (constructName === 'FormArray') {
+    const owner = assignedName(node);
+    const mutated = owner !== undefined && names.mutated.has(owner);
+    // An array that starts empty is populated at runtime, which is the same problem.
+    const startsEmpty = isEmptyArrayArgument(node);
+    const dynamic = mutated || startsEmpty;
+
+    out.push({
+      construct: 'FormArray',
+      node,
+      classification: dynamic ? 'judgment' : 'mechanical',
+      reason: dynamic
+        ? 'This FormArray is populated or resized at runtime. Signal Forms derives the field ' +
+          'tree from the model signal, so the list becomes a plain array in the model that you ' +
+          'grow with model.update(...) — a design change, not a rename.'
+        : 'A statically-populated FormArray becomes a plain array in the model signal, with ' +
+          'per-item rules applied through applyEach().',
+    });
+    return;
+  }
 
   if (constructName === 'FormControl') {
     out.push({
@@ -441,8 +601,21 @@ function collectFromFormBuilderCall(
   if (!ts.isPropertyAccessExpression(callee)) return;
 
   const method = declaredName(callee.name);
-  if (method !== 'group' && method !== 'control') return;
+  if (method !== 'group' && method !== 'control' && method !== 'array') return;
   if (!isKnownReceiver(callee.expression, formBuilderNames)) return;
+
+  if (method === 'array') {
+    out.push({
+      construct: 'FormBuilder.array',
+      node,
+      classification: 'judgment',
+      reason:
+        'fb.array(...) becomes a plain array in the model signal, with per-item rules applied ' +
+        'through applyEach(). Because array contents are usually built at runtime, the model ' +
+        'shape is a design decision rather than a rename.',
+    });
+    return;
+  }
 
   if (method === 'control') {
     out.push({
@@ -530,6 +703,19 @@ function collectFromPropertyAccess(node: ts.PropertyAccessExpression, out: Findi
 function collectFromTypeReference(node: ts.TypeReferenceNode, out: FindingDraft[]): void {
   if (!ts.isIdentifier(node.typeName)) return;
   const typeName = node.typeName.text;
+
+  if (typeName === 'AsyncValidatorFn') {
+    out.push({
+      construct: 'asyncValidator',
+      node,
+      classification: 'judgment',
+      reason:
+        'An AsyncValidatorFn becomes validateHttp() or validateAsync() inside the schema. ' +
+        'These run only after synchronous rules pass, cancel automatically on value change, ' +
+        'and report through pending()/errors() — the control flow is not a transliteration.',
+    });
+    return;
+  }
 
   if (typeName === 'ValidatorFn') {
     out.push({

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { availableConstructs, getSignalFormsRecipe } from '../src/core/recipes.js';
-import { M1_CONSTRUCTS, recipeSchema } from '../src/core/types.js';
+import { DETECTED_CONSTRUCTS, recipeSchema } from '../src/core/types.js';
 
 /** Constructs the detector emits in M1 that deliberately have no recipe yet. */
 const DEFERRED_TO_M3 = ['valueChanges', 'statusChanges'] as const;
@@ -68,13 +68,15 @@ describe('construct name normalisation', () => {
   });
 });
 
-describe('M1 recipe coverage', () => {
-  const covered = new Set(availableConstructs());
-
-  it.each(M1_CONSTRUCTS.filter((c) => !DEFERRED_TO_M3.includes(c as never)))(
-    'has a recipe for %s',
+describe('recipe coverage', () => {
+  // The real contract is composition: anything find_form_candidates emits must be
+  // answerable by get_signalforms_recipe. Several constructs reach their recipe through
+  // an alias (every shape-mutating method resolves to `dynamicControls`), so this asserts
+  // the lookup succeeds rather than that a canonical key exists.
+  it.each(DETECTED_CONSTRUCTS.filter((c) => !DEFERRED_TO_M3.includes(c as never)))(
+    'resolves a recipe for %s',
     (construct) => {
-      expect(covered.has(construct)).toBe(true);
+      expect(getSignalFormsRecipe(construct).found, construct).toBe(true);
     },
   );
 

@@ -131,6 +131,19 @@ human would type — `fb.group`, `required`, `ValidatorFn`, and so on, case-inse
 An unknown construct is **not** an error: you get
 `{ found: false, availableConstructs: [...] }` so the agent can correct itself and retry.
 
+### `analyze_migration_complexity`
+
+Summarises the whole job: how big it is, and where to start.
+
+```jsonc
+{ "path": "/abs/path/to/src/app" }
+```
+
+Returns `totalFindings`, `byConstruct`, the `mechanicalCount` / `judgmentCount` split, and
+`suggestedOrder` — files sorted simplest-first, so all-mechanical files come before any
+that need design decisions, and the smallest of those comes first. Migrating in that order
+means you establish the model shape on easy files before you hit the hard ones.
+
 ## Example
 
 ```

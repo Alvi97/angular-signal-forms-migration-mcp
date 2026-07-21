@@ -14,13 +14,16 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
+import { analyzeMigrationComplexity } from './core/complexity.js';
 import { findFormCandidates } from './core/detect.js';
 import { getSignalFormsRecipe } from './core/recipes.js';
 import {
+  analyzeMigrationComplexityInputSchema,
   findFormCandidatesInputSchema,
   findFormCandidatesOutputSchema,
   getSignalFormsRecipeInputSchema,
   getSignalFormsRecipeOutputSchema,
+  migrationComplexitySchema,
   type FindFormCandidatesOutput,
   type GetSignalFormsRecipeOutput,
 } from './core/types.js';
@@ -96,6 +99,7 @@ export function createServer(): McpServer {
             before: lookup.before,
             after: lookup.after,
             caveats: lookup.caveats,
+            provenance: lookup.provenance,
           }
         : {
             construct: lookup.construct,
@@ -103,6 +107,26 @@ export function createServer(): McpServer {
             availableConstructs: [...lookup.availableConstructs],
           };
       return jsonResult(payload);
+    },
+  );
+
+  server.registerTool(
+    'analyze_migration_complexity',
+    {
+      title: 'Summarise the size and shape of a Signal Forms migration',
+      description:
+        'Scans a .ts file or directory and summarises the migration: total findings, counts per ' +
+        'construct, the mechanical/judgment split, and a suggested file order (simplest first, ' +
+        'so all-mechanical files land before the ones needing design decisions). ' +
+        'Read-only: this tool never modifies your files.',
+      inputSchema: analyzeMigrationComplexityInputSchema.shape,
+      outputSchema: migrationComplexitySchema.shape,
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    },
+    ({ path }) => {
+      const result = findFormCandidates(toAbsolute(path), nodeFileSystem);
+      if (!result.ok) return errorResult(result.error);
+      return jsonResult(analyzeMigrationComplexity(result.data));
     },
   );
 

@@ -3,25 +3,29 @@
 Milestones are defined in [SPEC.md](./SPEC.md). This file tracks what each milestone
 deliberately **defers**, so nothing silently falls through the gap.
 
-## M1 — shipped scope
+## Shipped
 
-`find_form_candidates` + `get_signalforms_recipe`, basic constructs only.
+**M1** — `find_form_candidates` + `get_signalforms_recipe`. Detects `FormControl`,
+`FormGroup`, `FormBuilder`, `FormBuilder.group`, `FormBuilder.control`, `Validators.*`,
+custom `ValidatorFn`, `AbstractControl.get`, control types in type position,
+`valueChanges`, `statusChanges`.
 
-Detected: `FormControl`, `FormGroup`, `FormBuilder`, `FormBuilder.group`,
-`FormBuilder.control`, `Validators.*`, custom `ValidatorFn`, `valueChanges`,
-`statusChanges`.
+**M2** — dynamic and async. Adds `FormArray` and `fb.array()` as first-class findings
+(static arrays mechanical, runtime-mutated ones judgment), shape mutation
+(`addControl` / `removeControl` / `setControl` / `registerControl`, `push` / `removeAt` /
+`insert` / `clear`), and async validators (`AsyncValidatorFn`, the `asyncValidators`
+option). Recipes: `FormArray`, `dynamicControls`, `asyncValidator`. New tool
+`analyze_migration_complexity`.
 
-### Deferred out of M1
+### Still deferred
 
 | Item | Target | Note |
 | --- | --- | --- |
-| `FormArray` / `fb.array()` reported as its own construct | M2 | Currently used **only** as a classification guard: a group containing one is downgraded to `judgment`, but no `FormArray` finding is emitted. A codebase using `FormArray` will therefore under-report. |
-| Dynamic / conditional `addControl` / `removeControl` detection | M2 | |
-| Async validators (`AsyncValidatorFn`, `validateAsync`, `validateHttp`) | M2 | |
-| `analyze_migration_complexity` tool | M2 | |
-| `ControlValueAccessor` detection + guidance | M3 | |
-| RxJS interop recipes for `valueChanges` pipelines | M3 | `valueChanges` is *detected* in M1 and classified `judgment`, but has no recipe yet. |
+| `ControlValueAccessor` detection + guidance | M3 | v22 replaces it with `FormValueControl` / `FormCheckboxControl`. |
+| RxJS interop recipes for `valueChanges` pipelines | M3 | `valueChanges` is *detected* and classified `judgment`, but has no recipe yet. |
+| Operator-aware tiering of form stream pipelines | M3 | Classify by the operators in `.pipe()` — bare `subscribe` vs `map`/`debounceTime` vs `switchMap`/`combineLatest`. |
 | `get_migration_report` tool | M4 | |
+| Classifying arbitrary RxJS outside form streams | post-M4 | Explicitly out of scope: operator analysis is gated to observables bound to a form. A general RxJS-to-signals tool is a different product. |
 
 ### Version sensitivity
 

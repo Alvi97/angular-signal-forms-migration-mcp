@@ -35,12 +35,12 @@ export function err(error: string): Err {
 /* -------------------------------------------------------------------------- */
 
 /**
- * Constructs detected in M1 ("basic constructs" per SPEC.md).
+ * Every construct the detector can emit.
  *
- * `FormArray`, dynamic controls and async validators are deliberately absent —
- * they land in M2. See ROADMAP.md.
+ * A construct here must resolve to a recipe (directly or through an alias), or be listed
+ * as a documented gap in the recipe-coverage test. See ROADMAP.md.
  */
-export const M1_CONSTRUCTS = [
+export const DETECTED_CONSTRUCTS = [
   'FormControl',
   'FormGroup',
   'FormBuilder',
@@ -57,11 +57,26 @@ export const M1_CONSTRUCTS = [
   'Validators.compose',
   'customValidator',
   'AbstractControl.get',
+
+  // M2 — dynamic and async
+  'FormArray',
+  'FormBuilder.array',
+  'FormGroup.addControl',
+  'FormGroup.removeControl',
+  'FormGroup.setControl',
+  'FormGroup.registerControl',
+  'FormArray.push',
+  'FormArray.removeAt',
+  'FormArray.insert',
+  'FormArray.clear',
+  'FormArray.setControl',
+  'asyncValidator',
+
   'valueChanges',
   'statusChanges',
 ] as const;
 
-export type Construct = (typeof M1_CONSTRUCTS)[number];
+export type Construct = (typeof DETECTED_CONSTRUCTS)[number];
 
 /**
  * `mechanical` — a direct, low-risk transliteration the agent can apply confidently.
@@ -139,6 +154,24 @@ export type RecipeLookup =
     };
 
 /* -------------------------------------------------------------------------- */
+/* Complexity                                                                  */
+/* -------------------------------------------------------------------------- */
+
+export const migrationComplexitySchema = z.object({
+  totalFindings: z.number().int().nonnegative(),
+  /** Occurrences per construct, e.g. `{ "Validators.required": 23 }`. */
+  byConstruct: z.record(z.string(), z.number().int().nonnegative()),
+  mechanicalCount: z.number().int().nonnegative(),
+  judgmentCount: z.number().int().nonnegative(),
+  /**
+   * Files in the order they should be migrated, simplest first: all-mechanical files
+   * before any that need judgment, then fewest judgment calls, then smallest.
+   */
+  suggestedOrder: z.array(z.string()),
+});
+export type MigrationComplexity = z.infer<typeof migrationComplexitySchema>;
+
+/* -------------------------------------------------------------------------- */
 /* Tool inputs                                                                 */
 /* -------------------------------------------------------------------------- */
 
@@ -186,3 +219,11 @@ export const getSignalFormsRecipeOutputSchema = z.object({
   availableConstructs: z.array(z.string()).optional(),
 });
 export type GetSignalFormsRecipeOutput = z.infer<typeof getSignalFormsRecipeOutputSchema>;
+
+export const analyzeMigrationComplexityInputSchema = z.object({
+  path: z
+    .string()
+    .min(1)
+    .describe('Absolute path to a .ts file or a directory to scan recursively.'),
+});
+export type AnalyzeMigrationComplexityInput = z.infer<typeof analyzeMigrationComplexityInputSchema>;
