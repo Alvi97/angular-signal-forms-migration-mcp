@@ -9,10 +9,15 @@ import {
   apply,
   applyEach,
   disabled,
+  email,
   form,
   FormField,
   hidden,
+  max,
+  maxLength,
   min,
+  minLength,
+  pattern,
   required,
   schema,
   submit,
@@ -33,6 +38,10 @@ interface Model {
   items: Item[];
   total: number;
   coupon: string;
+  email: string;
+  age: number;
+  bio: string;
+  phone: string;
 }
 
 const addressSchema = schema<Address>((a) => {
@@ -54,6 +63,10 @@ export class Smoke {
     items: [{ name: '', quantity: 1, address: { street: '', city: '' } }],
     total: 0,
     coupon: '',
+    email: '',
+    age: 0,
+    bio: '',
+    phone: '',
   });
 
   readonly f = form(this.model, (path) => {
@@ -62,6 +75,17 @@ export class Smoke {
     disabled(path.coupon, { when: ({ valueOf }) => valueOf(path.total) < 50 });
     hidden(path.coupon, { when: () => false });
     validate(path.title, ({ value }) => (value().length > 2 ? null : { kind: 'tooShort' }));
+
+    // Every built-in validator the recipes reference, called with the arguments they
+    // show — so the SIGNATURES are compile-checked, not just the symbols' existence.
+    email(path.email, { message: 'Enter a valid email address' });
+    min(path.age, 18, { message: 'You must be at least 18 years old' });
+    max(path.age, 120, { message: 'Please enter a valid age' });
+    minLength(path.bio, 8, { message: 'Too short' });
+    maxLength(path.bio, 500, { message: 'Bio cannot exceed 500 characters' });
+    pattern(path.phone, /^\d{3}-\d{3}-\d{4}$/, {
+      message: 'Phone must be in format: 555-123-4567',
+    });
   });
 
   readonly isInvalid = computed(() => this.f().invalid());

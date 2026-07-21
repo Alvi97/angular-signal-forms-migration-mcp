@@ -72,3 +72,46 @@ describe('compile verification harness', () => {
     expect(ci).toContain('verify:install');
   });
 });
+
+/**
+ * Importing a symbol proves it exists. It does not prove the recipe calls it correctly.
+ *
+ * An audit found max/maxLength/minLength/pattern were import-only: their existence was
+ * verified, their call signatures never were. A recipe could have shown the wrong
+ * argument order for any of them and the harness would still have been green.
+ */
+describe('every callable API the recipes use is called in a fixture', () => {
+  const fixtures = [
+    'verify/src/smoke.ts',
+    'verify/src/form-state.ts',
+    'verify/src/controls-and-interop.ts',
+  ]
+    .map(read)
+    .join('\n');
+
+  /** Types are adequately proven by the import alone; functions are not. */
+  const TYPES_ONLY = new Set(['FormField', 'SchemaPath', 'SchemaPathTree', 'ValidationError']);
+
+  it('exercises every imported function with real arguments', () => {
+    const imported = new Set<string>();
+    for (const recipe of allRecipes()) {
+      for (const match of recipe.after.matchAll(
+        /import\s+(?:type\s+)?\{([^}]+)\}\s+from\s+'@angular\/forms\/signals'/g,
+      )) {
+        for (const raw of (match[1] ?? '').split(',')) {
+          const name = raw
+            .trim()
+            .replace(/^type\s+/, '')
+            .trim();
+          if (name !== '') imported.add(name);
+        }
+      }
+    }
+
+    const unexercised = [...imported]
+      .filter((name) => !TYPES_ONLY.has(name))
+      .filter((name) => !new RegExp(`\\b${name}\\s*[(<]`).test(fixtures));
+
+    expect(unexercised, `not called in any fixture: ${unexercised.join(', ')}`).toEqual([]);
+  });
+});
