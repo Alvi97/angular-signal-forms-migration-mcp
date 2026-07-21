@@ -123,6 +123,32 @@ describe('the NG8022 native-attribute collision', () => {
   });
 });
 
+/**
+ * Found by a corpus run against DeborahK/Angular-ReactiveForms, a teaching repo with both
+ * template-driven and reactive examples. Its template-driven form —
+ * `<input required minlength="3" [(ngModel)]="...">` — was flagged for NG8022 native-attribute
+ * collisions it can never hit: NG8022 only happens when a control converts to `[formField]`,
+ * and ngModel never does. The migration-specific checks must gate on REACTIVE bindings only.
+ */
+describe('migration-specific checks do not fire on template-driven ngModel', () => {
+  it('does not report an NG8022 collision on an ngModel input', () => {
+    const cs = constructs('<input required minlength="3" [(ngModel)]="customer.name" name="n">');
+    expect(cs).toContain('Template.ngModel'); // still flagged as out-of-scope
+    expect(cs).not.toContain('Template.nativeAttribute'); // but NOT an NG8022 collision
+  });
+
+  it('still reports NG8022 on a genuinely reactive-bound input', () => {
+    const cs = constructs('<input required minlength="3" formControlName="name">');
+    expect(cs).toContain('Template.nativeAttribute');
+  });
+
+  it('does not treat a template-driven <select multiple> as the [formField] blocker', () => {
+    const cs = constructs('<select multiple [(ngModel)]="tags" name="t"></select>');
+    expect(cs).toContain('Template.ngModel');
+    expect(cs).not.toContain('Template.selectMultiple');
+  });
+});
+
 describe('template-driven ngModel', () => {
   it.each(['<input [(ngModel)]="x">', '<input ngModel name="x">', '<input [ngModel]="x">'])(
     'flags %s as out of scope, not a Reactive migration',

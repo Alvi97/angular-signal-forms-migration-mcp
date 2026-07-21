@@ -128,3 +128,73 @@ export class C {
     expect(constructs(source)).not.toContain('AbstractControl.get');
   });
 });
+
+/**
+ * Two receiver-resolution gaps found by a corpus run across six real Angular repos.
+ *
+ * Both under-report DIFFICULTY — they miss judgment-tier calls — which is the worst way for
+ * this tool to be wrong: "all mechanical" reads as "safe transliteration".
+ */
+describe('a control reached through an `as` cast', () => {
+  // (form.get('items') as FormArray).push(...) is the dominant idiom, because get() is
+  // typed AbstractControl | null and people cast to reach array/control members.
+  it.each([
+    [`(this.form.get('items') as FormArray).push(this.build());`, 'FormArray.push'],
+    [`(this.form.get('items') as FormArray).removeAt(0);`, 'FormArray.removeAt'],
+    [`const n = (this.form.get('items') as FormArray).length;`, 'AbstractControl.length'],
+    [`(this.form.get('email') as FormControl).setValidators([]);`, 'AbstractControl.setValidators'],
+  ])('%s reports %s', (body, construct) => {
+    const source = `import { FormGroup, FormArray, FormControl } from '@angular/forms';
+export class C {
+  form: FormGroup;
+  build(): FormGroup { return null as any; }
+  run(): void { ${body} }
+}`;
+    expect(detectInSource('/a.ts', source).map((f) => f.construct)).toContain(construct);
+  });
+});
+
+describe('a method-local const alias of a control', () => {
+  const withLocal = (body: string): string => `${HEADER}
+  run(): void {
+    const phoneControl = this.loginForm.get('phone');
+    ${body}
+  }
+}
+`;
+
+  it.each([
+    ['phoneControl?.setValidators([]);', 'AbstractControl.setValidators'],
+    ['phoneControl?.clearValidators();', 'AbstractControl.clearValidators'],
+    ['phoneControl?.updateValueAndValidity();', 'AbstractControl.updateValueAndValidity'],
+    ['const v = phoneControl?.value;', 'AbstractControl.value'],
+  ])('%s reports %s on the alias', (body, construct) => {
+    expect(constructs(withLocal(body))).toContain(construct);
+  });
+
+  it('resolves a chain of local aliases', () => {
+    const source = `${HEADER}
+  run(): void {
+    const group = this.loginForm.get('address');
+    const city = group?.get('city');
+    city?.setValidators([]);
+  }
+}
+`;
+    expect(constructs(source)).toContain('AbstractControl.setValidators');
+  });
+
+  it('does NOT bind a local const that is not form-derived', () => {
+    // The fixpoint only binds when the initializer is provably form-derived, so an unrelated
+    // service call named like a control must not turn into a false positive.
+    const source = `${HEADER}
+  private svc = { load(): any { return null; } };
+  run(): void {
+    const phoneControl = this.svc.load();
+    phoneControl?.setValidators([]);
+  }
+}
+`;
+    expect(constructs(source)).not.toContain('AbstractControl.setValidators');
+  });
+});

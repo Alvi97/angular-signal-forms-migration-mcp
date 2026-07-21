@@ -101,12 +101,20 @@ const BINDINGS: ReadonlyMap<string, BindingRule> = new Map([
   ],
 ]);
 
-/** Binding attributes that identify a control on an element (for the select-multiple check). */
-const CONTROL_BINDINGS: ReadonlySet<string> = new Set([
+/**
+ * REACTIVE Forms control bindings — deliberately NOT including `ngModel`.
+ *
+ * These gate the two migration-specific checks (the `<select multiple>` blocker and the
+ * NG8022 native-attribute collision). Both consequences only happen when a control is
+ * converted to `[formField]`, which never happens for template-driven `ngModel`. A corpus
+ * run caught this: a fully template-driven form (`required minlength="3" [(ngModel)]`) was
+ * flagged for NG8022 collisions it can never hit. ngModel is still reported on its own, as
+ * an out-of-scope informational finding — it just does not trigger these two.
+ */
+const REACTIVE_CONTROL_BINDINGS: ReadonlySet<string> = new Set([
   'formControlName',
   'formControl',
   'formGroup',
-  'ngModel',
 ]);
 
 /* -------------------------------------------------------------------------- */
@@ -171,7 +179,7 @@ function collectBindings(
 function isBlockedSelectMultiple(tag: Tag): boolean {
   if (tag.name.toLowerCase() !== 'select') return false;
   if (!tag.attrs.some((a) => bareAttrName(a.name).toLowerCase() === 'multiple')) return false;
-  return tag.attrs.some((a) => CONTROL_BINDINGS.has(bareAttrName(a.name)));
+  return tag.attrs.some((a) => REACTIVE_CONTROL_BINDINGS.has(bareAttrName(a.name)));
 }
 
 function collectSelectMultiple(
@@ -180,7 +188,7 @@ function collectSelectMultiple(
   snippetAt: (pos: number) => string,
   out: Finding[],
 ): void {
-  const controlAttr = tag.attrs.find((a) => CONTROL_BINDINGS.has(bareAttrName(a.name)));
+  const controlAttr = tag.attrs.find((a) => REACTIVE_CONTROL_BINDINGS.has(bareAttrName(a.name)));
   if (controlAttr === undefined) return;
 
   out.push({
@@ -218,7 +226,7 @@ function collectNativeAttributeCollision(
   snippetAt: (pos: number) => string,
   out: Finding[],
 ): void {
-  const bound = tag.attrs.some((a) => CONTROL_BINDINGS.has(bareAttrName(a.name)));
+  const bound = tag.attrs.some((a) => REACTIVE_CONTROL_BINDINGS.has(bareAttrName(a.name)));
   if (!bound) return;
 
   for (const attr of tag.attrs) {

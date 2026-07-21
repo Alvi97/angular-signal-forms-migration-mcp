@@ -404,7 +404,11 @@ function bindControlAliases(sourceFile: ts.SourceFile, names: Set<string>): void
   const candidates: { name: string; expression: ts.Expression }[] = [];
 
   const visit = (node: ts.Node): void => {
-    if (ts.isGetAccessorDeclaration(node) || ts.isPropertyDeclaration(node)) {
+    if (
+      ts.isGetAccessorDeclaration(node) ||
+      ts.isPropertyDeclaration(node) ||
+      ts.isVariableDeclaration(node)
+    ) {
       const expression = aliasedExpression(node);
       const name = declaredName(node.name);
       if (expression !== undefined && name !== undefined && !names.has(name)) {
@@ -436,6 +440,12 @@ function aliasedExpression(node: ts.Node): ts.Expression | undefined {
     return undefined;
   }
   if (ts.isPropertyDeclaration(node) && node.initializer !== undefined) return node.initializer;
+  // `const phoneControl = this.form.get('phone')` — a method-local alias. Only bound when
+  // the initializer is provably form-derived (the fixpoint checks isFormDerivedReceiver), so
+  // `const x = someService.load()` never binds. Catches imperative calls (setValidators,
+  // setErrors, updateValueAndValidity) on the alias, which are judgment sites that were
+  // being missed — under-reporting difficulty on exactly the files that have the most of it.
+  if (ts.isVariableDeclaration(node) && node.initializer !== undefined) return node.initializer;
   return undefined;
 }
 
@@ -1176,7 +1186,16 @@ function isControlsAccess(node: ts.Node, formNames: ReadonlySet<string>): boolea
 /** Strips the syntax that decorates a receiver without changing what it refers to. */
 function unwrapReceiver(node: ts.Node): ts.Node {
   let current = node;
-  while (ts.isNonNullExpression(current) || ts.isParenthesizedExpression(current)) {
+  // `!`, `( )`, `as T` and `satisfies T` all decorate a receiver without changing what it
+  // refers to. The `as` case is the important one: casting a `.get()` result to FormArray/
+  // FormControl is the dominant Reactive Forms idiom (get() returns AbstractControl | null),
+  // so `(form.get('items') as FormArray).push(...)` was invisible until this unwrapped it.
+  while (
+    ts.isNonNullExpression(current) ||
+    ts.isParenthesizedExpression(current) ||
+    ts.isAsExpression(current) ||
+    ts.isSatisfiesExpression(current)
+  ) {
     current = current.expression;
   }
   return current;
