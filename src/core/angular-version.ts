@@ -1,12 +1,7 @@
 /**
- * Target-project Angular version detection — pure.
- *
- * Exists because the server happily produced a 653-finding migration plan for a codebase
- * on Angular 20, where `@angular/forms/signals` does not exist at all. Every recipe in
- * that plan was unusable. The version is the first thing a report must establish.
- *
- * All filesystem access goes through the injected `FileSystemPort`, so this stays
- * unit-testable without touching disk.
+ * Target-project Angular version detection (pure). Below v21 no `@angular/forms/signals`
+ * exists, so the version is the first thing a report must establish. Filesystem access goes
+ * through the injected `FileSystemPort`.
  */
 import type { FileSystemPort } from './detect.js';
 
@@ -19,7 +14,7 @@ export type AngularVersion =
       /** Exact version string, e.g. "20.3.25" or the declared range's resolved major. */
       readonly raw: string;
       readonly major: number;
-      /** Where the number came from — installed beats declared. */
+      /** Where the number came from; installed beats declared. */
       readonly source: 'node_modules' | 'package.json';
       /** Absolute path of the file the version was read from. */
       readonly from: string;
@@ -86,10 +81,8 @@ function ancestors(startPath: string, fs: FileSystemPort): string[] {
 }
 
 /**
- * The nearest package.json declaring @angular/core, walking up from `startPath`.
- *
- * Shared with companion detection so both read the SAME manifest — reading a different
- * one would let the version and the dependency list disagree.
+ * The nearest package.json declaring @angular/core, walking up from `startPath`. Shared with
+ * companion detection so the version and dependency list come from the same manifest.
  */
 export function findAngularManifest(startPath: string, fs: FileSystemPort): unknown {
   for (const dir of ancestors(startPath, fs)) {

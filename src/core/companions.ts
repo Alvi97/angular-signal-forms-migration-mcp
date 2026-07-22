@@ -1,13 +1,8 @@
 /**
- * Packages that constrain an Angular upgrade — pure.
- *
- * Angular's update guide models Angular. Real workspaces are gated by things it never
- * mentions: an Nx workspace cannot outrun Nx's own Angular support, and a custom webpack
- * builder collides with v22 deprecating webpack builders. A reader hit both, and the plan
- * was silent on both.
- *
- * Nothing here invents a compatibility matrix. It reports what is installed, why it is
- * coupled to Angular, and where the authoritative answer lives.
+ * Packages that constrain an Angular upgrade (pure). The update guide models Angular, but
+ * real workspaces are gated by things it never mentions (Nx's own Angular support, webpack
+ * builders v22 deprecates). This invents no compatibility matrix; it reports what's installed,
+ * why it's coupled to Angular, and where the authoritative answer lives.
  */
 
 export type CompanionCategory =
@@ -23,10 +18,7 @@ export interface Companion {
   readonly installed: string;
   readonly category: CompanionCategory;
   readonly note: string;
-  /**
-   * Build tooling that no supplied build config references. Only ever true when configs
-   * were actually provided — absent config means unknowable, not unused.
-   */
+  /** Build tooling no supplied config references. Only true when configs were provided. */
   readonly unused: boolean;
 }
 
@@ -141,13 +133,7 @@ export function detectCompanions(
   );
 }
 
-/**
- * Answers the update guide's optional-dependency questions from the manifest.
- *
- * A reader was asked whether they use Angular Material when the answer was sitting in
- * their package.json. Asking for information you already hold is a small insult and a
- * chance to get it wrong.
- */
+/** Answers the guide's optional-dependency questions (Material, ngUpgrade) from the manifest. */
 export function inferUpgradeOptions(manifest: unknown): {
   material: boolean;
   ngUpgrade: boolean;
@@ -167,12 +153,7 @@ export interface CompanionGroup {
   readonly ranges: Record<string, string>;
 }
 
-/**
- * Collapses packages that share advice into one entry.
- *
- * An Nx workspace installs a dozen @nx/* packages with identical guidance; printing that
- * note a dozen times buries the entries that actually differ.
- */
+/** Collapses packages that share advice into one entry (a dozen @nx/* packages, one note). */
 export function groupCompanions(companions: readonly Companion[]): CompanionGroup[] {
   const groups = new Map<string, CompanionGroup>();
 

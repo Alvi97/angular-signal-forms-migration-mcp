@@ -1,12 +1,7 @@
 /**
- * The impure half of the update check: one registry request, one cache file.
- *
- * Deliberately timid. It must never delay startup, never break a session, and never
- * write to stdout (the MCP protocol channel). Any failure — offline, firewalled, slow,
- * malformed response — is swallowed silently, because a dev tool that cannot reach npm
- * is not a broken dev tool.
- *
- * Opt out entirely with SIGNAL_FORMS_MCP_NO_UPDATE_CHECK=1.
+ * The impure half of the update check: one registry request, one cache file. Never delays
+ * startup, breaks a session, or writes to stdout; any failure is swallowed. Opt out with
+ * SIGNAL_FORMS_MCP_NO_UPDATE_CHECK=1.
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -93,7 +88,7 @@ export async function checkForUpdate(
   if (process.env['SIGNAL_FORMS_MCP_NO_UPDATE_CHECK'] === '1') return;
   if (!shouldCheckForUpdate(readLastChecked(), nowMs, UPDATE_CHECK_INTERVAL_MS)) return;
 
-  // Recorded BEFORE the request, so a hanging registry cannot cause a check every launch.
+  // Recorded before the request, so a hanging registry can't cause a check every launch.
   writeLastChecked(nowMs);
 
   const latest = await fetchLatestVersion(packageName);

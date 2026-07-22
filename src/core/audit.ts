@@ -1,8 +1,6 @@
 /**
- * Provenance audit — pure.
- *
- * Turns "is this advice still current?" from an archaeology exercise into a checklist.
- * `npm run docs:audit` renders this; a test asserts the invariants it reports on.
+ * Provenance audit (pure). Turns "is this advice still current?" into a checklist; rendered
+ * by `npm run docs:audit`, with tests asserting the invariants.
  */
 import { allRecipes } from './recipes.js';
 import { VERIFIED_ANGULAR_VERSION } from './version.js';
@@ -23,7 +21,7 @@ export interface AuditReport {
   readonly entries: readonly AuditEntry[];
   readonly stale: readonly AuditEntry[];
   readonly versionSensitive: readonly AuditEntry[];
-  /** Every distinct URL across stale recipes — the re-verification worklist. */
+  /** Every distinct URL across stale recipes; the re-verification worklist. */
   readonly staleSources: readonly string[];
 }
 

@@ -1,14 +1,8 @@
 /**
- * Third-party packages that will block an Angular upgrade — pure.
- *
- * A live upgrade died on `@swimlane/ngx-charts`, which caps at Angular 19. It was found
- * the expensive way: run the install, read the ERESOLVE, investigate, repeat. Every
- * installed package declaring an `@angular/core` peer range is knowable up front, so
- * discovering them one npm error at a time is avoidable.
- *
- * The range check is deliberately conservative. It reports the declared range verbatim
- * and only calls something blocking when the range parses cleanly AND excludes the target;
- * anything it cannot parse is reported as unknown rather than guessed at.
+ * Third-party packages that will block an Angular upgrade (pure). Any installed package with
+ * an `@angular/core` peer range is knowable up front, so this reports them instead of leaving
+ * them to be found one ERESOLVE at a time. Conservative: only "blocking" when the range parses
+ * cleanly and excludes the target, else "unknown".
  */
 
 export interface PeerPackage {
@@ -22,7 +16,7 @@ export interface PeerBlockerReport {
   readonly blocking: PeerPackage[];
   /** Packages whose range clearly includes it. */
   readonly compatible: PeerPackage[];
-  /** Angular-peered packages whose range could not be parsed — judge these by hand. */
+  /** Angular-peered packages whose range could not be parsed; judge these by hand. */
   readonly unknown: PeerPackage[];
   /** How many package manifests were actually readable. Zero means nothing was checked. */
   readonly inspected: number;
@@ -36,11 +30,9 @@ export type PeerReader = (
 const MAX_MAJOR = 99;
 
 /**
- * The Angular majors a peer range admits.
- *
- * Handles the shapes Angular libraries actually use — `^19.0.0`, unions with `||`,
- * `>=18.0.0 <21.0.0`, `19.x`, `~20.1.0`. Returns an empty set for anything else, which
- * callers must treat as "unknown", never as "incompatible".
+ * The Angular majors a peer range admits. Handles the shapes libraries use (`^19.0.0`, `||`
+ * unions, `>=18.0.0 <21.0.0`, `19.x`, `~20.1.0`); anything else returns empty, which callers
+ * treat as "unknown", never "incompatible".
  */
 export function majorsInRange(range: string): Set<number> {
   const majors = new Set<number>();
@@ -68,8 +60,7 @@ export function majorsInRange(range: string): Set<number> {
       continue;
     }
 
-    // A lone lower bound (>=19.0.0) admits everything above it; too open to enumerate
-    // usefully, so treat the whole range as unparseable rather than invent a ceiling.
+    // A lone lower bound (>=19.0.0) is too open to enumerate; treat as unparseable.
     if (lower?.[1] !== undefined) return new Set<number>();
   }
 

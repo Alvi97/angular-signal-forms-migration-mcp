@@ -1,8 +1,6 @@
 /**
- * The only place in the server that touches the real filesystem.
- *
- * Keeping this adapter out of src/core keeps detection pure and testable with an
- * in-memory FileSystemPort — no fixture files on disk, no temp directories.
+ * The only place that touches the real filesystem. Keeping it out of src/core keeps
+ * detection pure and testable with an in-memory FileSystemPort.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -42,10 +40,8 @@ export function toAbsolute(path: string): string {
 }
 
 /**
- * Reads an installed package's version and its `@angular/core` peer range.
- *
- * Returns undefined when the package is not installed, which is the normal state during
- * an upgrade — callers must distinguish "not installed" from "no Angular peer".
+ * Reads an installed package's version and `@angular/core` peer range. Undefined when the
+ * package isn't installed; callers distinguish that from "no Angular peer".
  */
 export function readInstalledPeer(
   workspaceDir: string,
@@ -71,11 +67,8 @@ export function readInstalledPeer(
 }
 
 /**
- * Build configs that name builders/executors, so an unreferenced dependency can be told
- * apart from a used one.
- *
- * Best-effort and shallow: an unreadable or absent config yields nothing, which callers
- * must treat as "unknown", never as "unused".
+ * Build configs naming builders/executors, so an unreferenced dependency is distinguishable
+ * from a used one. Best-effort; absent config yields nothing, which callers treat as "unknown".
  */
 export function readBuildConfigs(workspaceDir: string): string[] {
   const found: string[] = [];
@@ -88,7 +81,7 @@ export function readBuildConfigs(workspaceDir: string): string[] {
     }
   }
 
-  // Per-project configs, one level down — the common Nx layout.
+  // Per-project configs one level down, the common Nx layout.
   try {
     for (const entry of readdirSync(workspaceDir, { withFileTypes: true })) {
       if (!entry.isDirectory() || entry.name.startsWith('.') || entry.name === 'node_modules') {

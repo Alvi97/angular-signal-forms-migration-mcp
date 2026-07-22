@@ -1,9 +1,6 @@
 /**
- * Renders an upgrade plan as markdown — pure.
- *
- * Every step's text is Angular's own, reproduced verbatim. This file arranges and frames
- * them; it never rewrites them, and it always links back to the official guide so the
- * output can be checked against the source it came from.
+ * Renders an upgrade plan as markdown (pure). Step text is Angular's own, verbatim; this
+ * arranges and frames it and links back to the official guide.
  */
 import { MIN_SIGNAL_FORMS_VERSION } from './angular-version.js';
 import { groupCompanions, type Companion } from './companions.js';
@@ -22,12 +19,7 @@ const CATEGORY_TITLES: Readonly<Record<Companion['category'], string>> = {
   'release-train': 'Moves with Angular (ng update normally handles these)',
 };
 
-/**
- * Packages that gate the upgrade but appear nowhere in Angular's own steps.
- *
- * A reader following the plan hit two of these — Nx pinning Angular support, and a custom
- * webpack builder against v22's deprecation — and had to work them out themselves.
- */
+/** Packages that gate the upgrade but appear nowhere in Angular's own steps (Nx, custom builders). */
 function companionLines(companions: readonly Companion[]): string[] {
   if (companions.length === 0) return [];
 
@@ -46,8 +38,7 @@ function companionLines(companions: readonly Companion[]): string[] {
       lines.push('');
     }
 
-    // One bullet per piece of advice, listing every package it applies to — an Nx
-    // workspace installs a dozen packages that all say the same thing.
+    // One bullet per piece of advice, listing every package it applies to.
     const shown = group.names.slice(0, 4).map((n) => `\`${n}\``);
     const extra = group.names.length - shown.length;
     const named = extra > 0 ? `${shown.join(', ')} +${String(extra)} more` : shown.join(', ');
@@ -64,10 +55,8 @@ function companionLines(companions: readonly Companion[]): string[] {
 }
 
 /**
- * Third-party packages that will refuse to install against the target.
- *
- * Discovering these through successive ERESOLVE failures costs a cycle each. They are all
- * declared up front in the installed manifests.
+ * Third-party packages that will refuse to install against the target, all declared up front
+ * in the installed manifests.
  */
 function peerLines(peers: PeerBlockerReport | undefined, target: number): string[] {
   if (peers === undefined) return [];
@@ -162,8 +151,7 @@ export function buildUpgradeReport(
 
   /* ---- One major at a time ------------------------------------------------ */
 
-  // Rendered for a single hop too: an Nx workspace needs the right driver even for one
-  // major, and that guidance used to be hidden behind a multi-hop check.
+  // Rendered for a single hop too: an Nx workspace needs the right driver even for one major.
   if (plan.majorSteps.length >= 1) {
     lines.push(
       plan.majorSteps.length > 1 ? '## Upgrade one major at a time' : '## The upgrade command',
@@ -179,9 +167,8 @@ export function buildUpgradeReport(
     lines.push('');
     let previous = plan.fromMajor;
     for (const major of plan.majorSteps) {
-      // In an Nx workspace `ng update` is the wrong driver: nx migrate runs the Angular
-      // migrations AND the Nx ones in the right order. Printing ng update here while the
-      // companions section says "run nx migrate" would be the report contradicting itself.
+      // In an Nx workspace `ng update` is the wrong driver: nx migrate runs the Angular and
+      // Nx migrations in the right order.
       const command = context.isNxWorkspace
         ? '`nx migrate <nx-version-supporting-angular-' +
           String(major) +

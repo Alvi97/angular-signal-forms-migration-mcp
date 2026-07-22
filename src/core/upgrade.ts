@@ -1,14 +1,8 @@
 /**
- * Angular upgrade planning — pure.
- *
- * Signal Forms needs Angular 21+, so for most callers the first real task is an upgrade,
- * not a migration. Rather than author upgrade advice — which would be exactly the failure
- * this project exists to prevent — this reproduces Angular's own update guide against
- * Angular's own data, vendored from the repo by scripts/fetch-update-steps.mjs.
- *
- * The filter and bucketing below are transcribed from
- * adev/src/app/features/update/update.component.ts. Keep them faithful: if the official
- * logic changes, this must change with it, not diverge into a second opinion.
+ * Angular upgrade planning (pure). Signal Forms needs Angular 21+, so for most callers the
+ * first task is an upgrade. Rather than author upgrade advice, this reproduces Angular's own
+ * update guide against its own vendored data (scripts/fetch-update-steps.mjs). The filter and
+ * bucketing are transcribed from adev's update.component.ts; keep them faithful.
  */
 import { createRequire } from 'node:module';
 import type { ApplicationComplexity, UpgradeStep, UpgradeStepData } from './types.js';
@@ -16,8 +10,7 @@ import type { ApplicationComplexity, UpgradeStep, UpgradeStepData } from './type
 const require = createRequire(import.meta.url);
 const data = require('../data/angular-update-steps.json') as UpgradeStepData;
 
-/** Options the official guide exposes. `pwa` and `angularCLI` exist in the data but the
- * guide never filters on them, so neither do we — faithfulness over tidiness. */
+/** Options the guide filters on. `pwa` and `angularCLI` exist in the data but it never uses them. */
 const FILTERED_OPTIONS = ['ngUpgrade', 'material', 'windows'] as const;
 
 export interface UpgradeOptions {
@@ -27,7 +20,7 @@ export interface UpgradeOptions {
   readonly ngUpgrade: boolean;
   /** "I use Angular Material". */
   readonly material: boolean;
-  /** "I use Windows" — swaps in cmd-compatible commands. */
+  /** "I use Windows"; swaps in cmd-compatible commands. */
   readonly windows: boolean;
 }
 
@@ -41,22 +34,11 @@ export interface UpgradePlan {
   readonly during: UpgradeStep[];
   readonly after: UpgradeStep[];
   readonly total: number;
-  /**
-   * What each optional-dependency answer actually did to THIS plan.
-   *
-   * Reporting only how many steps carry a flag described the data rather than the
-   * caller's answer, so a report kept saying "still relevant, answer accurately" to
-   * someone who had already answered.
-   */
+  /** What each optional-dependency answer did to this plan. */
   readonly optionImpact: Readonly<Record<OptionName, OptionImpact>>;
-  /** The options above with zero applicable steps, for a plain "this does not matter" note. */
+  /** Options with zero applicable steps, for a "this does not matter" note. */
   readonly irrelevantOptions: string[];
-  /**
-   * Steps grouped by the `ng update` hop that makes them necessary.
-   *
-   * The guide returns one flat list for the whole span, which cannot be worked through:
-   * a v22 step is unreachable while you are still on v20.
-   */
+  /** Steps grouped by the `ng update` hop that makes them necessary (the guide returns one flat list). */
   readonly byMajor: MajorGroup[];
   readonly guideUrl: string;
   readonly coverage: DataCoverage;
@@ -66,11 +48,11 @@ export interface UpgradePlan {
 export type OptionName = 'ngUpgrade' | 'material' | 'windows';
 
 export interface OptionImpact {
-  /** Steps in range that carry this flag at all — 0 means the answer cannot matter. */
+  /** Steps in range carrying this flag; 0 means the answer can't matter. */
   readonly applicable: number;
-  /** Steps present BECAUSE the answer was yes. */
+  /** Steps present because the answer was yes. */
   readonly includedByAnswer: number;
-  /** Steps withheld BECAUSE the answer was no. */
+  /** Steps withheld because the answer was no. */
   readonly excludedByAnswer: number;
 }
 
@@ -101,12 +83,7 @@ export function dataCoverage(): DataCoverage {
   return { minMajor: Math.floor(min / 100), maxMajor: Math.floor(max / 100) };
 }
 
-/**
- * Rejects ranges that cannot mean anything, returning a message or undefined.
- *
- * A downgrade previously returned an empty plan, which reads as "nothing to do" — the
- * most dangerous possible answer to "how do I go from 22 to 19".
- */
+/** Rejects meaningless ranges (downgrade, no-op, out of data), returning a message or undefined. */
 export function validateUpgradeRange(fromMajor: number, toMajor: number): string | undefined {
   if (!Number.isInteger(fromMajor) || fromMajor < 1) {
     return `"${String(fromMajor)}" is not a valid Angular major version.`;
@@ -124,10 +101,8 @@ export function validateUpgradeRange(fromMajor: number, toMajor: number): string
     );
   }
 
-  // Beyond the data is beyond Angular: the vendored file tracks released versions, so a
-  // target above it does not exist yet. Producing a partial plan that looked complete was
-  // the worse answer. The message names the staleness possibility so a real new release
-  // is a data refresh rather than a dead end.
+  // A target above the vendored data doesn't exist yet. The message names the staleness
+  // possibility, so a real new release is a data refresh rather than a dead end.
   const { minMajor, maxMajor } = dataCoverage();
   if (toMajor > maxMajor) {
     return (
@@ -146,7 +121,7 @@ export function validateUpgradeRange(fromMajor: number, toMajor: number): string
   return undefined;
 }
 
-/** The guide numbers versions as major * 100 — v19.0 is 1900. */
+/** The guide numbers versions as major * 100; v19.0 is 1900. */
 export function majorToVersionCode(major: number): number {
   return major * 100;
 }
@@ -161,11 +136,9 @@ export function updateGuideUrl(
 }
 
 /**
- * True when a step should be hidden given the user's options.
- *
- * Transcribed from the official logic, which is tri-state: a truthy flag means the step
- * REQUIRES that option, and an explicit `false` means the step must be hidden when the
- * option IS set (that is how Windows and POSIX command variants are kept apart).
+ * True when a step should be hidden given the options. Tri-state, per the official logic: a
+ * truthy flag means the step requires that option; `false` means hide it when the option is set
+ * (how Windows and POSIX command variants stay apart).
  */
 function isSkipped(step: UpgradeStep, options: UpgradeOptions): boolean {
   for (const option of FILTERED_OPTIONS) {
@@ -250,9 +223,8 @@ export function buildUpgradePlan(
     },
   } as const;
 
-  // Group by the hop each step belongs to, and lead each hop with its toolchain gates:
-  // Angular records steps roughly in the order breaking changes landed, so a Node version
-  // requirement can sit sixteenth while gating the `ng update` at position one.
+  // Group by hop, leading each with its toolchain gates (a Node/TS requirement gates the
+  // `ng update` but can appear far down the source order).
   const isToolchain = (step: UpgradeStep): boolean => /node|typescript/i.test(step.step);
   const groups = new Map<number, UpgradeStep[]>();
   for (const step of [...before, ...during, ...after]) {
