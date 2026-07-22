@@ -1,14 +1,8 @@
 #!/usr/bin/env node
 /**
- * MCP wiring only — no logic lives here.
- *
- * Every handler is a thin adapter: parse input (zod) -> call a pure core function
- * -> shape the Result into a CallToolResult. Core never throws across this
- * boundary, so handlers translate `{ ok: false }` into `isError: true` rather
- * than relying on exceptions.
- *
- * Both tools are advertised `readOnlyHint: true`. This server DETECTS and ADVISES;
- * it never writes to the user's source files.
+ * MCP wiring only. Each handler parses input with zod, calls a pure core function, and shapes
+ * the Result into a CallToolResult ({ ok: false } becomes isError: true). All tools are
+ * readOnlyHint: true; the server never writes to source files.
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -59,14 +53,7 @@ import {
 } from './infra/node-fs.js';
 import { checkForUpdate } from './infra/update-notifier.js';
 
-/**
- * Identity announced in the MCP handshake, read from package.json rather than hardcoded.
- *
- * These were literal strings until 0.1.1 shipped still calling itself
- * "signal-forms-migration-mcp 0.1.0" — the pre-rename package name and a stale version.
- * A server that misreports its own build makes every "which version am I running?"
- * question unanswerable.
- */
+/** Identity announced in the handshake, read from package.json so it can't misreport itself. */
 const packageJson: unknown = JSON.parse(
   readFileSync(fileURLToPath(new URL('../package.json', import.meta.url)), 'utf8'),
 );
@@ -80,7 +67,7 @@ function packageField(name: string, fallback: string): string {
 export const SERVER_NAME = packageField('name', 'angular-signal-forms-migration-mcp');
 export const SERVER_VERSION = packageField('version', '0.0.0');
 
-/** stdout is the MCP stdio channel and must stay clean — diagnostics go to stderr. */
+/** stdout is the MCP stdio channel; diagnostics go to stderr. */
 function logToStderr(message: string): void {
   process.stderr.write(`[${SERVER_NAME}] ${message}\n`);
 }
@@ -97,14 +84,8 @@ function errorResult(message: string): CallToolResult {
 }
 
 /**
- * Sent to the client at handshake and injected into the calling agent's context.
- *
- * This is the server's only channel for shaping HOW its output is used. Everything here
- * is a rule that is expensive to get wrong and that an agent will otherwise get wrong by
- * default — chiefly: treating a judgment finding as a rename, and starting a migration
- * the project cannot compile. A README does not reach the model; this does.
- *
- * Kept to a checklist. It competes for context with the user's actual task.
+ * Injected into the calling agent's context at handshake, so it's the one place to shape how
+ * the output is used. Kept to a checklist; it competes with the user's task for context.
  */
 export const SERVER_INSTRUCTIONS = `This server DETECTS and ADVISES on migrating Angular Reactive Forms to Signal Forms.
 It never edits code. You make every edit, and the user reviews it.
@@ -277,8 +258,7 @@ export function createServer(): McpServer {
         ),
       );
       return {
-        // The markdown IS the payload here, so it goes in content as-is rather than
-        // being JSON-encoded — the agent should be able to read or save it directly.
+        // The markdown is the payload, so it goes in content as-is rather than JSON-encoded.
         content: [{ type: 'text', text: markdown }],
         structuredContent: { markdown },
       };
@@ -317,8 +297,7 @@ export function createServer(): McpServer {
       const invalid = validateUpgradeRange(from, to);
       if (invalid !== undefined) return errorResult(invalid);
 
-      // Read the manifest rather than asking the caller what is in it. Explicit
-      // arguments still win — inference is a default, not an override.
+      // Infer from the manifest, but explicit arguments still win.
       const manifest = findAngularManifest(toAbsolute(path), nodeFileSystem);
       const inferred = inferUpgradeOptions(manifest);
 
@@ -365,8 +344,7 @@ export type CliAction = 'version' | 'help' | 'serve';
 export function resolveCliAction(argv: readonly string[]): CliAction {
   if (argv.some((arg) => arg === '--version' || arg === '-v' || arg === '-V')) return 'version';
   if (argv.some((arg) => arg === '--help' || arg === '-h')) return 'help';
-  // Unknown flags are ignored rather than fatal: an MCP client may pass through
-  // arguments we do not recognise, and refusing to start would be the worse failure.
+  // Unknown flags are ignored: an MCP client may pass through arguments we don't recognise.
   return 'serve';
 }
 
@@ -405,9 +383,8 @@ async function main(): Promise<void> {
   await server.connect(new StdioServerTransport());
   logToStderr(`v${SERVER_VERSION} ready on stdio`);
 
-  // Deliberately not awaited: the server is already serving, and a slow or unreachable
-  // registry must never delay or fail a session. Every failure path inside resolves
-  // quietly, and it is throttled to once a day.
+  // Not awaited: the update check must never delay a session. It fails quietly and is
+  // throttled to once a day.
   void checkForUpdate(SERVER_NAME, SERVER_VERSION, (message) => {
     logToStderr(message);
   });

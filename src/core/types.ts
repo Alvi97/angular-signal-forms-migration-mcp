@@ -1,8 +1,6 @@
 /**
- * Single source of truth for every shape crossing a tool boundary.
- *
- * Rule: define the zod schema, then derive the TypeScript type with `z.infer`.
- * Never hand-write a type that duplicates a schema — they drift.
+ * Every shape crossing a tool boundary. Define the zod schema, derive the type with
+ * `z.infer`; never hand-write a type that duplicates a schema.
  */
 import { z } from 'zod';
 
@@ -35,10 +33,8 @@ export function err(error: string): Err {
 /* -------------------------------------------------------------------------- */
 
 /**
- * Every construct the detector can emit.
- *
- * A construct here must resolve to a recipe (directly or through an alias), or be listed
- * as a documented gap in the recipe-coverage test. See ROADMAP.md.
+ * Every construct the detector can emit. Each must resolve to a recipe (directly or via an
+ * alias) or be a documented gap in the recipe-coverage test.
  */
 export const DETECTED_CONSTRUCTS = [
   'FormControl',
@@ -139,14 +135,11 @@ export const findingSchema = z.object({
   /** Trimmed source text of the line, for the agent to locate the site. */
   snippet: z.string(),
   classification: classificationSchema,
-  /** Why it was classified that way — shown to the user, so keep it plain. */
+  /** Why it was classified that way; shown to the user, so keep it plain. */
   reason: z.string(),
   /**
-   * True when this finding CONSTRUCTS a form (`new FormGroup`, `fb.group(...)`) rather than
-   * merely referencing one (a type annotation, a cast, a state read).
-   *
-   * A file with no defining findings cannot be migrated on its own — its form lives
-   * elsewhere — so it must never be offered as a pilot.
+   * True when this finding constructs a form (`new FormGroup`, `fb.group(...)`) rather than
+   * referencing one. A file with no defining findings can't be migrated alone.
    */
   definesForm: z.boolean(),
 });
@@ -164,19 +157,15 @@ export type FileFindings = z.infer<typeof fileFindingsSchema>;
 /* -------------------------------------------------------------------------- */
 
 /**
- * Where a recipe's syntax came from.
- *
- * Required on every recipe — a recipe without a source is indistinguishable from one
- * written out of a model's memory, which is exactly the failure mode this project keeps
- * hitting. `npm run docs:audit` reads these fields to turn a version upgrade into a
- * checklist instead of an archaeology exercise.
+ * Where a recipe's syntax came from. Required on every recipe, so advice can't be confused
+ * with model memory; `npm run docs:audit` reads these fields.
  */
 export const provenanceSchema = z.object({
   /** Angular major version whose docs were read, e.g. 22. */
   verifiedAgainstVersion: z.number().int().positive(),
   /** ISO date (YYYY-MM-DD) the docs were retrieved. */
   retrievedISO: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  /** Exact doc URLs consulted. Must be non-empty — see the CI test. */
+  /** Exact doc URLs consulted; must be non-empty. */
   sources: z.array(z.string().url()).min(1),
   /** True when behaviour differs across Angular versions; the caveats must say how. */
   versionSensitive: z.boolean(),
@@ -188,11 +177,7 @@ export const recipeSchema = z.object({
   description: z.string(),
   before: z.string(),
   after: z.string(),
-  /**
-   * Anything the agent must not assume. A recipe whose syntax could not be
-   * confirmed against official docs MUST carry
-   * `"UNVERIFIED — confirm on <exact URL>"` here.
-   */
+  /** Anything the agent must not assume; unconfirmed syntax carries an `UNVERIFIED` note. */
   caveats: z.array(z.string()),
   provenance: provenanceSchema,
 });
@@ -222,15 +207,9 @@ export const migrationComplexitySchema = z.object({
    * before any that need judgment, then fewest judgment calls, then smallest.
    */
   suggestedOrder: z.array(z.string()),
-  /**
-   * Files whose findings only REFERENCE a form defined elsewhere. They are sorted last:
-   * migrating one in isolation is impossible, so they are not valid starting points.
-   */
+  /** Files that only reference a form defined elsewhere; sorted last, can't migrate alone. */
   referenceOnlyFiles: z.array(z.string()),
-  /**
-   * Files that own no form but DEFINE reusable validators. They migrate fine alone, and
-   * their new error shape gates every consumer — decide their design early.
-   */
+  /** Files defining reusable validators; their error shape gates consumers, so design early. */
   sharedValidatorFiles: z.array(z.string()),
 });
 

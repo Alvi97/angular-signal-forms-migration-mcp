@@ -1,23 +1,10 @@
 /**
- * Test coverage of the files a migration will rewrite — pure.
- *
- * Three separate live runs against real codebases independently reached the same
- * conclusion: "my verification signal is the compiler, not the tests, because the files
- * I'm rewriting have no covering tests." The report never said so, leaving each operator
- * to discover it.
- *
- * A rewrite with no test underneath is not a blocker, but it changes how the work should
- * be sequenced — and it is knowable before a line is changed.
+ * Test coverage of the files a migration will rewrite (pure). A rewrite with no test isn't a
+ * blocker, but it changes how the work should be sequenced, and it's knowable up front.
  */
 import { detectInSource, type FileSystemPort } from './detect.js';
 
-/**
- * Files that decide whether ANY spec in a project runs.
- *
- * A zero-byte one of these takes down every suite beneath it while looking present to
- * every tool that checks. That is not hypothetical: it silenced five auth suites for
- * months, and the failure surfaced as an unrelated-looking parse error.
- */
+/** Files that decide whether any spec runs; a zero-byte one silently disables every suite below. */
 const HARNESS_FILES = ['jest.config.ts', 'jest.config.js', 'src/test-setup.ts', 'test-setup.ts'];
 
 export interface CoverageReport {
@@ -25,24 +12,16 @@ export interface CoverageReport {
   readonly covered: string[];
   /** Files with no spec file at all. */
   readonly uncovered: string[];
-  /** Files whose spec exists but is empty — the most misleading state of the three. */
+  /** Files whose spec exists but is empty; the most misleading state of the three. */
   readonly emptySpec: string[];
   readonly total: number;
-  /**
-   * Empty harness files found above the scanned sources. While one of these exists, every
-   * spec under it is inert regardless of its contents.
-   */
+  /** Empty harness files above the sources; while one exists, every spec under it is inert. */
   readonly brokenHarness: string[];
-  /** Files that will be rewritten with nothing actually verifying them. */
+  /** Files that will be rewritten with nothing verifying them. */
   readonly unprotected: number;
   /**
-   * Spec files that themselves use Reactive Forms, with how many constructs each contains.
-   *
-   * Specs are excluded from the migration counts on purpose — a spec cannot be "migrated
-   * first", so folding them into the totals would distort both the size and the ordering.
-   * But staying silent about them was its own dishonesty: a spec that builds a FormGroup and
-   * calls setValue/markAsTouched has to be rewritten too, under DIFFERENT rules (a form needs
-   * an injection context in a test, and setValue becomes value.set()). Reported separately.
+   * Spec files that themselves use Reactive Forms, and how many constructs each has. Excluded
+   * from the counts, but still need rewriting under the different testing rules.
    */
   readonly specsUsingForms: { readonly spec: string; readonly findings: number }[];
 }
@@ -102,8 +81,7 @@ export function assessCoverage(files: readonly string[], fs: FileSystemPort): Co
       continue;
     }
 
-    // A zero-byte or whitespace-only spec is worse than a missing one: tooling counts it
-    // as present, so it reads as coverage right up until the suite fails to parse.
+    // A zero-byte or whitespace-only spec reads as coverage until the suite fails to parse.
     const specFindings = detectInSource(spec, contents).length;
     if (specFindings > 0) specsUsingForms.push({ spec, findings: specFindings });
 

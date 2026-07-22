@@ -1,9 +1,6 @@
 /**
- * Workspace migration report — pure.
- *
- * Composes detection + complexity + recipe references into one markdown document. It
- * RETURNS a string; nothing here writes to disk. Whether the report becomes a file is the
- * calling agent's decision, which keeps the detect-and-advise rule intact.
+ * Workspace migration report (pure). Composes detection, complexity and recipe references
+ * into one markdown string; nothing here writes to disk.
  */
 import { MIN_SIGNAL_FORMS_VERSION, signalFormsAvailable } from './angular-version.js';
 import { analyzeMigrationComplexity } from './complexity.js';
@@ -17,11 +14,8 @@ import type { FileFindings, Finding } from './types.js';
 const MAX_LISTED_JUDGMENTS = 10;
 
 /**
- * Constructs that are LIVE BUGS rather than migration work.
- *
- * These get their own section above the plan because they are actionable today, on the
- * current Angular, whether or not the migration ever happens — and because a faithful
- * migration would carry them across into new code where they are harder to spot.
+ * Constructs that are live bugs rather than migration work. Shown in their own section above
+ * the plan, since they're actionable on the current Angular regardless of the migration.
  */
 const BUG_CONSTRUCTS: ReadonlySet<string> = new Set(['deadValidatorOption']);
 
@@ -61,12 +55,7 @@ function constructRows(byConstruct: Readonly<Record<string, number>>): [string, 
   );
 }
 
-/**
- * Version-sensitive recipes among the constructs actually found.
- *
- * Only warns about what is present — a blanket warning on every report trains people to
- * ignore it.
- */
+/** Version-sensitive recipes among the constructs found; warns only about what's present. */
 function versionSensitiveConstructs(byConstruct: Readonly<Record<string, number>>): string[] {
   const flagged = new Set<string>();
   for (const construct of Object.keys(byConstruct)) {
@@ -92,13 +81,7 @@ function judgmentLines(findings: readonly Finding[], root: string, file: string)
   return lines;
 }
 
-/**
- * The prerequisite block.
- *
- * This exists because the server once produced a complete 653-finding plan for a project
- * on Angular 20, where none of the target API exists. The plan still renders below — it is
- * a valid post-upgrade blueprint — but it must not be the first thing read.
- */
+/** The prerequisite block: below v21 no target API exists, so this leads before the plan. */
 function prerequisiteLines(version: AngularVersion): string[] {
   const lines: string[] = [];
 
@@ -151,13 +134,7 @@ function prerequisiteLines(version: AngularVersion): string[] {
   return lines;
 }
 
-/**
- * Resolves a version-sensitive recipe against the project's ACTUAL version.
- *
- * Handing the agent both variants and hoping is what this replaces. The awkward case is a
- * project on neither diverging version — say Angular 20 — where the honest answer is that
- * the divergence does not describe this project at all.
- */
+/** Resolves a version-sensitive recipe against the project's actual version. */
 function versionResolutionLines(version: AngularVersion): string[] {
   const target = String(VERIFIED_ANGULAR_VERSION);
 
@@ -193,13 +170,7 @@ function versionResolutionLines(version: AngularVersion): string[] {
   ];
 }
 
-/**
- * What is verifying the rewrite.
- *
- * Not a blocker, but it changes the sequencing: an all-mechanical file with no test is a
- * different risk from an all-mechanical file with one, and only the operator can decide
- * whether to write tests first.
- */
+/** What is verifying the rewrite. Not a blocker, but it changes the sequencing. */
 function coverageLines(
   coverage: CoverageReport | undefined,
   root: string,
@@ -255,10 +226,8 @@ function coverageLines(
     lines.push('');
   }
 
-  // Specs are excluded from the migration counts deliberately — a spec cannot be migrated
-  // "first", so counting them would distort both the totals and the ordering. Saying nothing
-  // about them was the wrong fix: they use the same APIs and have to be rewritten too, under
-  // rules that differ from production code.
+  // Specs are excluded from the counts but still need rewriting, under different rules
+  // (they use the same APIs), so they're listed separately.
   if (coverage.specsUsingForms.length > 0) {
     const total = coverage.specsUsingForms.reduce((sum, entry) => sum + entry.findings, 0);
     lines.push('');
@@ -296,8 +265,8 @@ export function buildMigrationReport(
 
   /* ---- Live bugs --------------------------------------------------------- */
 
-  // Deliberately above the plan, and rendered even when the version gate blocks the
-  // migration: a gate stops a migration, not a one-word bug fix.
+  // Above the plan, and shown even when the version gate blocks migration: a gate stops a
+  // migration, not a bug fix.
   const bugs = collectBugs(files);
   if (bugs.length > 0) {
     lines.push('## Bugs found — fix these before migrating');
