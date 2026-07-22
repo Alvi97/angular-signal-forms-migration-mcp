@@ -121,11 +121,23 @@ milestone could take an optional `angularVersion` input.
   Building a full `ts.Program` would be authoritative but requires resolving the
   user's tsconfig and node_modules on every call.
 - **`.get()` detection depends on name binding.** `form.get('k')` is only reported when the
-  receiver was bound to a form in pass 1 — annotated `: FormGroup` / `: AbstractControl`, or
-  initialised from `new FormGroup(...)` / `fb.group(...)`. This is what keeps `params.get()`,
-  `formData.get()` and `map.get()` out of the report (verified against a real workspace: 38
-  true positives, 0 false positives). The cost is that a form arriving through an unannotated
-  intermediate — say `getForm().get('email')` — is missed.
+  receiver was bound to a form in pass 1 — annotated `: FormGroup` / `: AbstractControl`,
+  initialised from `new FormGroup(...)` / `fb.group(...)`, or built by a factory method that
+  returns one of those. This is what keeps `params.get()`, `formData.get()` and `map.get()`
+  out of the report (verified against a real workspace: 38 true positives, 0 false positives).
+  The cost is that a form arriving through an unannotated intermediate — say
+  `getForm().get('email')` — is missed.
+- **Forms stored on a domain-model object are missed (cross-object access).** When a
+  `FormGroup` lives as a property of a *data model* rather than the component —
+  `this.selectedSection.SectionValidator.controls[i].updateValueAndValidity()` — the receiver
+  chain (`this.selectedSection.SectionValidator`) cannot be proven to be a form without
+  cross-file type resolution, so its usages are invisible. The SAME-object form of this
+  (`this.sectionValidator.controls[i]...`, a `FormGroup`-typed field on the component) IS
+  detected. Found in a 50-repo + enterprise corpus run, concentrated in one legacy
+  (Angular 7) EMR app; it did not appear in any modern codebase. A name/structural heuristic
+  (`*.SomethingValidator.controls[...]`) was considered and rejected: it would widen the
+  false-positive surface across every codebase to serve one, against this tool's
+  precision-first stance. Authoritative handling needs the `ts.Program` deep mode below.
 - **Template-driven forms have no documented migration.** `ngModel` bindings are now
   flagged (`Template.ngModel`) but as OUT OF SCOPE: angular.dev documents no ngModel →
   Signal Forms path, so the tool refuses to invent one.

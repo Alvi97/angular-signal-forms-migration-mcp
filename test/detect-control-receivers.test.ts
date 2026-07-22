@@ -257,3 +257,44 @@ export class C {
     expect(constructs).toEqual([]);
   });
 });
+
+/**
+ * The boundary of receiver resolution, pinned so it cannot drift by accident.
+ *
+ * An enterprise-corpus run (a 498k-LOC Angular 7 EMR) uses FormGroups stored as properties
+ * on DOMAIN-MODEL objects, named `*Validator`, and accessed cross-object:
+ *
+ *     this.selectedSection.SectionValidator.controls[i].updateValueAndValidity();
+ *
+ * Proving `this.selectedSection.SectionValidator` is a form needs cross-file type resolution
+ * (the detector has no ts.Program), so this is a documented known miss — see ROADMAP. The
+ * SAME-object shape, a FormGroup-typed field on the component itself, IS resolved. These two
+ * assertions fix that line: a future change that flips either is then a deliberate one.
+ */
+describe('receiver-resolution boundary (documented)', () => {
+  it('DETECTS a FormGroup-typed field accessed on the same object', () => {
+    const source = `import { FormGroup, FormBuilder } from '@angular/forms';
+export class Section {
+  public sectionValidator: FormGroup;
+  constructor(fb: FormBuilder) { this.sectionValidator = fb.group({ name: [''] }); }
+  touch(i: number) { this.sectionValidator.controls[i].updateValueAndValidity(); }
+}`;
+    expect(detectInSource('/c.ts', source).map((f) => f.construct)).toContain(
+      'AbstractControl.updateValueAndValidity',
+    );
+  });
+
+  it('does NOT resolve a form stored on a referenced model object (known limitation)', () => {
+    // Would need to know `selectedSection`'s type carries a `SectionValidator: FormGroup`.
+    const source = `import { FormGroup } from '@angular/forms';
+export class Comp {
+  selectedSection: unknown;
+  touch(i: number) {
+    (this.selectedSection as any).SectionValidator.controls[i].updateValueAndValidity();
+  }
+}`;
+    expect(detectInSource('/c.ts', source).map((f) => f.construct)).not.toContain(
+      'AbstractControl.updateValueAndValidity',
+    );
+  });
+});
