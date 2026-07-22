@@ -198,3 +198,62 @@ describe('a method-local const alias of a control', () => {
     expect(constructs(source)).not.toContain('AbstractControl.setValidators');
   });
 });
+
+/**
+ * Form built by a factory method — found in a 50-repo corpus run (Ismaestro/angular-example-app
+ * and others). Angular's own guidance encourages extracting form construction into a helper:
+ *
+ *     readonly registerForm = this.createRegisterForm();
+ *     private createRegisterForm() { return this.fb.group({ ... }); }
+ *
+ * The field is not typed as a form and its initializer is a plain method call, so it was
+ * invisible — hiding EVERY use of the form and mislabelling the file as "reference only".
+ */
+describe('a form built by a factory method', () => {
+  const withFactory = (usages: string, factoryBody: string): string =>
+    `import { FormBuilder, FormControl, Validators } from '@angular/forms';
+export class C {
+  private fb = inject(FormBuilder);
+  readonly registerForm = this.createRegisterForm();
+  run(): void { ${usages} }
+  private createRegisterForm() { return ${factoryBody}; }
+}`;
+
+  it.each([
+    ['this.registerForm.markAllAsTouched();', 'AbstractControl.markAllAsTouched'],
+    ["const v = this.registerForm.get('email');", 'AbstractControl.get'],
+    ['const raw = this.registerForm.getRawValue();', 'AbstractControl.getRawValue'],
+    ['const bad = this.registerForm.invalid;', 'AbstractControl.invalid'],
+  ])('%s is seen on the factory-built form', (usage, construct) => {
+    const source = withFactory(usage, "this.fb.group({ email: ['', Validators.required] })");
+    expect(detectInSource('/c.ts', source).map((f) => f.construct)).toContain(construct);
+  });
+
+  it('follows a factory that delegates to another factory', () => {
+    const source = `import { FormBuilder } from '@angular/forms';
+export class C {
+  private fb = inject(FormBuilder);
+  form = this.build();
+  run(): void { this.form.disable(); }
+  private build() { return this.base(); }
+  private base() { return this.fb.group({ a: [''] }); }
+}`;
+    expect(detectInSource('/c.ts', source).map((f) => f.construct)).toContain(
+      'AbstractControl.disable',
+    );
+  });
+
+  it('does NOT bind a field from a method that returns a non-form', () => {
+    // getForm() here returns an HTTP observable, not a form — must stay unbound.
+    const source = `import { HttpClient } from '@angular/common/http';
+export class C {
+  private http = inject(HttpClient);
+  data = this.getForm();
+  run(): void { this.data.subscribe(); }
+  private getForm() { return this.http.get('/x'); }
+}`;
+    const constructs = detectInSource('/c.ts', source).map((f) => f.construct);
+    expect(constructs).not.toContain('AbstractControl.subscribe');
+    expect(constructs).toEqual([]);
+  });
+});

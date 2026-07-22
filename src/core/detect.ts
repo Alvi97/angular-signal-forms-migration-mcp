@@ -388,8 +388,105 @@ function collectFormLikeNames(sourceFile: ts.SourceFile): ReadonlySet<string> {
   };
   ts.forEachChild(sourceFile, visit);
 
+  bindFactoryBuiltForms(sourceFile, names);
   bindControlAliases(sourceFile, names);
   return names;
+}
+
+/**
+ * Binds `readonly registerForm = this.createRegisterForm();` where the method builds a form.
+ *
+ * Angular's own guidance encourages extracting form construction into a helper method, and a
+ * corpus run found it in real apps. The field is not typed as a form and its initializer is a
+ * plain method call, so it was invisible — which hid EVERY use of the form (`.get()`,
+ * `.markAllAsTouched()`, `.getRawValue()`), and mislabelled the file as "reference only".
+ *
+ * A method counts as a form factory only when its body returns a form CONSTRUCTION
+ * (`new FormGroup(...)`, `fb.group(...)`, or another form factory). That keeps a method named
+ * `getForm()` that returns `this.http.get(...)` out.
+ */
+function bindFactoryBuiltForms(sourceFile: ts.SourceFile, names: Set<string>): void {
+  const factories = new Set<string>();
+
+  // Pass 1: find methods whose return expression is a form construction.
+  const collectFactories = (node: ts.Node): void => {
+    if (ts.isMethodDeclaration(node)) {
+      const name = declaredName(node.name);
+      if (name !== undefined && methodReturnsForm(node, factories)) factories.add(name);
+    }
+    ts.forEachChild(node, collectFactories);
+  };
+  // Repeat to a fixpoint: one factory may call another declared later in the file.
+  let before = -1;
+  while (factories.size !== before) {
+    before = factories.size;
+    ts.forEachChild(sourceFile, collectFactories);
+  }
+
+  if (factories.size === 0) return;
+
+  // Pass 2: bind fields/vars initialised from `this.<factory>()`.
+  const bindFields = (node: ts.Node): void => {
+    if (ts.isPropertyDeclaration(node) || ts.isVariableDeclaration(node)) {
+      const name = declaredName(node.name);
+      if (name !== undefined && !names.has(name) && callsFactory(node.initializer, factories)) {
+        names.add(name);
+      }
+    }
+    ts.forEachChild(node, bindFields);
+  };
+  ts.forEachChild(sourceFile, bindFields);
+}
+
+/** True when a method's body contains a `return <form construction>`. */
+function methodReturnsForm(node: ts.MethodDeclaration, factories: ReadonlySet<string>): boolean {
+  let found = false;
+  const visit = (child: ts.Node): void => {
+    if (found) return;
+    // Do not descend into nested functions — their returns are not this method's.
+    if (ts.isFunctionDeclaration(child) || ts.isFunctionExpression(child)) return;
+    if (ts.isReturnStatement(child) && child.expression !== undefined) {
+      if (isFormConstruction(child.expression, factories)) found = true;
+    }
+    ts.forEachChild(child, visit);
+  };
+  if (node.body !== undefined) ts.forEachChild(node.body, visit);
+  return found;
+}
+
+/** `= this.createForm()` — an initializer that is a call to a known factory method. */
+function callsFactory(init: ts.Node | undefined, factories: ReadonlySet<string>): boolean {
+  if (init === undefined || !ts.isCallExpression(init)) return false;
+  const callee = init.expression;
+  if (
+    ts.isPropertyAccessExpression(callee) &&
+    callee.expression.kind === ts.SyntaxKind.ThisKeyword
+  ) {
+    const method = declaredName(callee.name);
+    return method !== undefined && factories.has(method);
+  }
+  return false;
+}
+
+/** `new FormGroup(...)`, `fb.group(...)`, or a call to a known form-factory method. */
+function isFormConstruction(expr: ts.Expression, factories: ReadonlySet<string>): boolean {
+  const node = unwrapReceiver(expr);
+  if (ts.isNewExpression(node) && ts.isIdentifier(node.expression)) {
+    return CONTROL_TYPES.has(node.expression.text);
+  }
+  if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+    const method = declaredName(node.expression.name);
+    if (method === 'group' || method === 'array' || method === 'control') return true;
+    // A factory that just delegates to another factory: `return this.buildBase();`
+    if (
+      method !== undefined &&
+      factories.has(method) &&
+      node.expression.expression.kind === ts.SyntaxKind.ThisKeyword
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
