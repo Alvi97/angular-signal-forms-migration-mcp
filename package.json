@@ -1,7 +1,9 @@
 {
   "name": "angular-signal-forms-migration-mcp",
   "version": "0.5.1",
+  "mcpName": "io.github.Alvi97/angular-signal-forms-migration-mcp",
   "description": "MCP server that detects Angular Reactive Forms constructs and advises on migrating them to Angular Signal Forms (recipes verified against v22). Detect-and-advise only — never edits your code.",
+  "author": "Alvi97 (https://github.com/Alvi97)",
   "type": "module",
   "main": "dist/server.js",
   "bin": {
@@ -27,6 +29,7 @@
     "test:watch": "vitest",
     "check": "npm run typecheck && npm run lint && npm run test",
     "start": "node dist/server.js",
+    "version": "node scripts/sync-server-json.mjs && git add server.json",
     "prepublishOnly": "npm run check && npm run build",
     "verify:install": "npm --prefix verify install",
     "verify:recipes": "npm run build && node verify/generate.mjs && npx tsc -p verify/tsconfig.json",
@@ -35,10 +38,18 @@
   "keywords": [
     "mcp",
     "model-context-protocol",
+    "mcp-server",
     "angular",
+    "angular-forms",
     "signal-forms",
+    "angular-signals",
     "reactive-forms",
-    "migration"
+    "reactive-forms-migration",
+    "forms",
+    "migration",
+    "codemod",
+    "angular-22",
+    "angular-21"
   ],
   "license": "MIT",
   "repository": {
