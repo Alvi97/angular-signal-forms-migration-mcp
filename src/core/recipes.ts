@@ -1,51 +1,18 @@
 /**
- * ============================================================================
- * DOCS PROVENANCE — read before editing any recipe below.
- * ============================================================================
+ * Docs provenance. Read before editing any recipe.
  *
- * Angular version targeted : 22 (current release). Signal Forms requires "v21 or higher".
- * Signal Forms entry point : '@angular/forms/signals'
- *                            (interop: '@angular/forms/signals/compat')
- * Stability                : NOT labelled experimental in v22. The v21 essentials page
- *                            carried an "IMPORTANT: Signal Forms are experimental" banner;
- *                            that banner is GONE in v22. The overview page instead hedges,
- *                            verbatim: "If you're working with an existing application that
- *                            uses reactive forms, or if you need production stability
- *                            guarantees, reactive forms remain a solid choice."
- *                            So: do not call it experimental, and do not call it stable.
- * Verified on              : 2026-07-21
- * Verified how             : official Angular CLI MCP server (`npx @angular/cli mcp`)
- *                            `search_documentation` with version: 22 — the tool reported
- *                            `searchedVersion: 22` on every query — cross-checked by
- *                            fetching the same pages on angular.dev.
+ * Target: Angular 22 (Signal Forms needs v21+). Entry point `@angular/forms/signals`
+ * (interop `@angular/forms/signals/compat`). Not labelled experimental in v22, but the
+ * overview still steers production-stability needs to reactive forms, so call it neither
+ * experimental nor stable. Verified 2026-07-21 via the Angular CLI MCP (searchedVersion 22),
+ * cross-checked on angular.dev.
  *
- * Doc URLs consulted (all v22 / current):
- *   https://angular.dev/essentials/signal-forms
- *   https://angular.dev/guide/forms/signals/overview
- *   https://angular.dev/guide/forms/signals/validation
- *   https://angular.dev/guide/forms/signals/field-state-management
- *   https://angular.dev/guide/forms/signals/async-operations
- *   https://angular.dev/guide/forms/signals/migration
+ * Names memory gets wrong: the binding directive is `FormField` / `[formField]` (not
+ * `Control` / `[control]`); the form directive is `FormRoot` / `[formRoot]`; the schema
+ * callback receives a `SchemaPathTree`, named `path`.
  *
- * Names the docs settled that model memory gets WRONG:
- *   - The binding directive is `FormField` / `[formField]` (NOT `Control` / `[control]`,
- *     which appeared in pre-release v21 material).
- *   - The form-element directive is `FormRoot` / `[formRoot]`.
- *   - The schema callback receives a `SchemaPathTree`, conventionally named `path`.
- *
- * BEHAVIOUR THAT CHANGED BETWEEN v21 AND v22 — do not port recipes across versions blind:
- *   - `required()` and `false`. The v21 validation page defined "empty" as `null` or `''`
- *     only, which made `false` PASS required(). The v22 page adds, verbatim: "it treats
- *     false as missing (invalid), matching <input type="checkbox" required>". That flips
- *     `Validators.requiredTrue` from a judgment rewrite into a mechanical rename.
- *     (The v22 "empty" table still lists only null and '' — the prose note is more
- *     specific and is what the recipe below follows.)
- *
- * Per CLAUDE.md rule 2, every `after` snippet here is transcribed from the pages above.
- * Any snippet that could not be confirmed MUST carry
- * `"UNVERIFIED — confirm on angular.dev"` in its `caveats`.
- * If docs and memory conflict, docs win.
- * ============================================================================
+ * Per CLAUDE.md rule 2, every `after` snippet is transcribed from the docs; anything
+ * unconfirmed carries an `UNVERIFIED` caveat. Docs win over memory.
  */
 import type { Recipe, RecipeLookup } from './types.js';
 import { VERIFIED_ANGULAR_VERSION } from './version.js';
@@ -82,11 +49,7 @@ export const DOCS = {
 /** Pages that establish the core model/form()/schema shape every recipe rests on. */
 const CORE_SOURCES: readonly string[] = [DOCS.essentials, DOCS.validation];
 
-/**
- * A recipe as authored. Provenance is assembled by `withProvenance` so the version and
- * retrieval date can never drift between recipes, and so a recipe physically cannot be
- * added without a source list.
- */
+/** A recipe as authored; `withProvenance` fills in the version, date and sources. */
 type RecipeDraft = Omit<Recipe, 'provenance'> & {
   /** Doc URLs this specific recipe came from. Defaults to CORE_SOURCES. */
   readonly sources?: readonly string[];
@@ -94,14 +57,7 @@ type RecipeDraft = Omit<Recipe, 'provenance'> & {
   readonly versionSensitive?: boolean;
 };
 
-/**
- * Pages a SHARED caveat quotes from. A recipe that carries the caveat must cite the page,
- * or its provenance points somewhere the sentence does not appear.
- *
- * Three independent audits caught the same defect: the STABILITY quote is verbatim correct
- * and lives on the overview page, which almost no recipe listed. Attaching sources by hand
- * per recipe made that inevitable, so the boilerplate now carries its own citation.
- */
+/** Pages a shared caveat quotes from, added to a recipe's sources when it carries the caveat. */
 const SHARED_CAVEAT_SOURCES: readonly (readonly [string, string])[] = [
   ['STABILITY:', DOCS.overview],
   ['MODEL SHAPE', DOCS.models],
@@ -126,10 +82,7 @@ function withProvenance(draft: RecipeDraft): Recipe {
   };
 }
 
-/**
- * Attached to every recipe. v22 dropped v21's "experimental" banner but still stops short
- * of promising stability, and an agent must surface that before a bulk migration.
- */
+/** Stability caveat on every recipe: v22 dropped the experimental banner but promises nothing. */
 const STABILITY =
   'STABILITY: verified against Angular v22 docs. v22 no longer labels Signal Forms ' +
   'experimental (v21 carried "Signal Forms are experimental. The API may change in future ' +
@@ -139,21 +92,9 @@ const STABILITY =
   'actual Angular version. Recipes flagged VERSION-SENSITIVE name the specific difference.';
 
 /**
- * The string a built-in rule puts in `error.kind`.
- *
- * Recipes used to stop at the TypeScript side, which left the template half of the
- * migration unsourced: an agent doing this for real had to read node_modules to find out
- * what to match on. Worse, two of the keys are RENAMED, and getting one wrong is silent —
- * `errors().some(e => e.kind === 'minlength')` is valid TypeScript that is never true, so
- * the message simply stops appearing with nothing to debug.
- *
- * Every kind here is compile-pinned in verify/src/submission-and-error-kinds.ts, and each
- * one is published on angular.dev's API reference as a literal (`readonly kind: "minLength"`
- * on MinLengthValidationError, and so on). The prose guides only ever illustrate three of
- * them — "e.g. required, email, minLength" — so the per-class API page is the citation.
- *
- * The Reactive-key -> Signal-kind MAPPING is this tool's own: angular.dev has no such table
- * anywhere, so it is assembled from the API pages plus the Reactive Forms validator docs.
+ * The `error.kind` string a built-in rule emits. Each is compile-pinned in
+ * verify/src/submission-and-error-kinds.ts and published on the per-class API page; two
+ * (minLength/maxLength) are renamed from the Reactive keys, and a stale key fails silently.
  */
 function errorKind(kind: string, errorClass: string, reactiveKey = kind): string {
   const rename =
@@ -176,14 +117,8 @@ function errorKind(kind: string, errorClass: string, reactiveKey = kind): string
 }
 
 /**
- * The five rules that write their own native HTML attribute.
- *
- * Doc-confirmed twice: the validation guide's "Native HTML validation" section names
- * required/min/max/minLength/maxLength as mirrored "when the element supports them", with
- * pattern() the sole exception, and the form-logic guide repeats it via metadata keys.
- *
- * What is NOT documented is the consequence, so it is marked as such: a v22 AOT build
- * refuses a hand-written copy of an attribute the directive owns.
+ * The five rules that write their own native HTML attribute (required/min/max/minLength/
+ * maxLength; pattern() excepted). The mirroring is documented; the NG8022 consequence is not.
  */
 function nativeAttribute(attribute: string): string {
   return (
@@ -206,15 +141,8 @@ function nativeAttribute(attribute: string): string {
  * apply recipes one at a time and will otherwise miss it.
  */
 /**
- * What may and may not go in a model signal.
- *
- * Every recipe that turns a control into a model property needs these, and every one of
- * them fails quietly: the model type-checks, the form builds, and a field is simply absent
- * or an input is simply broken. `new FormControl()` producing `null` is the most common —
- * it is the default in Reactive Forms and it is invalid for a text input here.
- *
- * Compiled in verify/src/model-and-context.ts, including a @ts-expect-error proving an
- * optional property cannot be targeted by a rule.
+ * What may and may not go in a model signal. All four rules fail quietly. Compiled in
+ * verify/src/model-and-context.ts.
  */
 const MODEL_SHAPE =
   "MODEL SHAPE — four documented rules, all of which fail SILENTLY. (1) Use `''`, not " +
@@ -236,16 +164,7 @@ const MODEL_FIRST =
   'time. That is a property of `form()`, NOT a limit of Signal Forms — see INCREMENTAL below ' +
   'before committing to a big-bang rewrite.';
 
-/**
- * The correction to a claim this file repeated in seven recipes.
- *
- * It used to say "Signal Forms has no standalone control objects... migrate a whole form at
- * once, not control by control." Angular documents the exact opposite as a named strategy,
- * and ships stable v22 API for it. Telling an agent to convert a 47-field form in one commit
- * when a field-at-a-time path exists is expensive advice to follow.
- *
- * Both directions compile in verify/src/incremental-migration.ts.
- */
+/** Incremental migration is documented and supported; both directions compile in verify/. */
 const INCREMENTAL =
   'INCREMENTAL IS SUPPORTED, and is usually the safer plan for a large form. Bottom-up: ' +
   '`new SignalFormControl(value, schemaFn)` from `@angular/forms/signals/compat` IS a ' +
@@ -260,12 +179,7 @@ const IMPORT_FORMFIELD =
   "Add `FormField` to the component's `imports` array — `[formField]` is a directive, " +
   'not a built-in binding.';
 
-/**
- * Verified before/after recipes, keyed by canonical construct name.
- *
- * Keys match the `construct` values emitted by `detectInSource`, so the output of
- * `find_form_candidates` can be fed straight into `get_signalforms_recipe`.
- */
+/** Verified recipes, keyed by the canonical construct names `detectInSource` emits. */
 const RECIPE_DRAFTS: ReadonlyArray<readonly [string, RecipeDraft]> = [
   [
     'FormControl',
@@ -2247,20 +2161,11 @@ readonly f = form(this.model, (path) => {
   ],
 ];
 
-/**
- * Verified before/after recipes, keyed by canonical construct name.
- *
- * Keys match the `construct` values emitted by `detectInSource`, so the output of
- * `find_form_candidates` can be fed straight into `get_signalforms_recipe`.
- */
 const RECIPES: ReadonlyMap<string, Recipe> = new Map(
   RECIPE_DRAFTS.map(([construct, draft]) => [construct, withProvenance(draft)]),
 );
 
-/**
- * Spellings a caller might reasonably use, mapped to a canonical RECIPES key.
- * The detector emits canonical keys; humans and agents do not.
- */
+/** Spellings a caller might type, mapped to a canonical RECIPES key. */
 const ALIASES: ReadonlyMap<string, string> = new Map([
   ['formcontrol', 'FormControl'],
   ['formgroup', 'FormGroup'],
@@ -2412,10 +2317,7 @@ const ALIASES: ReadonlyMap<string, string> = new Map([
   ['custom validator', 'customValidator'],
 ]);
 
-/**
- * Folds the spellings that mean the same construct: case, surrounding whitespace,
- * and a trailing call form (`Validators.required()` -> `validators.required`).
- */
+/** Folds case, whitespace and a trailing `()` so equivalent spellings match. */
 function normalise(construct: string): string {
   return construct
     .trim()
@@ -2439,12 +2341,7 @@ export function availableConstructs(): readonly string[] {
   return [...RECIPES.keys()].sort((a, b) => a.localeCompare(b));
 }
 
-/**
- * Looks up a migration recipe.
- *
- * Never throws. An unknown construct is a value — `{ found: false }` carrying the
- * list of valid keys — so the calling agent can correct itself and retry.
- */
+/** Looks up a recipe. Never throws; an unknown construct returns `{ found: false }` with the keys. */
 export function getSignalFormsRecipe(construct: string): RecipeLookup {
   const normalised = normalise(construct);
 
