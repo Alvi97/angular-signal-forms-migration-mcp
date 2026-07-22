@@ -1,5 +1,5 @@
 /**
- * Update notification — pure.
+ * Update notification (pure).
  *
  * `npx pkg@latest` already upgrades on every launch, so the real problem is not the
  * mechanism but the awareness: a user pinned to an exact version, or holding an npx
@@ -46,7 +46,7 @@ export function compareVersions(a: string, b: string): number {
  * The message to show, or undefined when there is nothing to say.
  *
  * Silent when current, ahead (a local build must not nag its own author), or when either
- * version cannot be parsed — guessing would be worse than staying quiet.
+ * version cannot be parsed; guessing would be worse than staying quiet.
  */
 export function updateNotice(
   current: string,

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * `npm run docs:audit` — prints recipe provenance and flags anything stale.
+ * `npm run docs:audit`: prints recipe provenance and flags anything stale.
  *
  * This is a CLI, not library code, so stdout is the correct output channel here.
  * (The MCP server in src/server.ts must never write to stdout; that rule is about

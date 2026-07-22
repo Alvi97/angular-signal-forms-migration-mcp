@@ -154,7 +154,7 @@ const STATE_READS: ReadonlySet<string> = new Set([
   'pristine',
   'pending',
   'controls',
-  // `items.length` / `items.controls.length` — the usual "is the list empty?" check.
+  // `items.length` / `items.controls.length`: the usual "is the list empty?" check.
   'length',
   // Only meaningful next to reset(), whose semantics change.
   'defaultValue',
@@ -804,7 +804,7 @@ function isEmptyArrayArgument(node: ts.NewExpression): boolean {
 }
 
 /**
- * `form.addControl(...)`, `items.push(...)` and friends — imperative reshaping of a form.
+ * `form.addControl(...)`, `items.push(...)` and friends: imperative reshaping of a form.
  *
  * Signal Forms has no equivalent: the field tree is derived from the model signal's type,
  * so a form whose shape changes at runtime has to be re-expressed as data in the model

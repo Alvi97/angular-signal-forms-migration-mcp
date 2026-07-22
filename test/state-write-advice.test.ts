@@ -2,13 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { detectInSource } from '../src/core/detect.js';
 import { getSignalFormsRecipe } from '../src/core/recipes.js';
 
-/**
- * Two corrections a migrating agent made to this server's advice, both from reading the
- * installed typings after the recipe told it something that did not match.
- *
- * The agent was right both times. That is the failure worth guarding: advice confident
- * enough to be followed, wrong enough that following it breaks something.
- */
+// Two corrections to earlier advice (reset() needs an argument; markAllAsTouched is a
+// rename), guarding against advice confident enough to follow but wrong enough to break.
 function caveats(construct: string): string {
   const recipe = getSignalFormsRecipe(construct);
   if (!recipe.found) throw new Error(`missing recipe: ${construct}`);

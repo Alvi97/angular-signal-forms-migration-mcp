@@ -2,14 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { detectInTemplate } from '../src/core/detect-template.js';
 import type { Finding } from '../src/core/types.js';
 
-/**
- * Template detection closes the half of every migration that lives in `.html`.
- *
- * The whole project's recurring lesson applies double here: a false positive on a template
- * binding erodes trust, and under-reporting (missing `formArrayName`, or the silent
- * error-key rename) sends an agent in thinking the job is smaller than it is. So these tests
- * pin both directions — what must be found, and what must be left alone.
- */
+// Template detection for the `.html` half of a migration. Pins both directions: what must be
+// found, and what must be left alone.
 function constructs(tpl: string): string[] {
   return detectInTemplate('t.html', tpl).map((f) => f.construct);
 }

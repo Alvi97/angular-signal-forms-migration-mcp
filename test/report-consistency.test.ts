@@ -6,17 +6,8 @@ import { getSignalFormsRecipe } from '../src/core/recipes.js';
 import type { AngularVersion } from '../src/core/angular-version.js';
 import type { FileFindings } from '../src/core/types.js';
 
-/**
- * The report is one document that states things twice — as prose and as tables. When those
- * two drift, a reader is right to distrust the whole thing.
- *
- * This happened: a "Shared validators — decide these early" section shipped while the
- * ordering table ranked that same file last. The advisory section was added without
- * touching the sort, and nothing checked they agreed.
- *
- * These are invariants over the WHOLE document rather than examples, so the next feature
- * that half-lands fails here instead of in a reader's report.
- */
+// The report states things twice, as prose and as tables. These invariants check the two
+// never drift (a "decide these early" section once shipped while the table ranked it last).
 
 const IMPORT = `import { AbstractControl, FormArray, FormBuilder, FormControl, FormGroup, Validators, ValidatorFn } from '@angular/forms';`;
 

@@ -111,7 +111,7 @@ export function detectInTemplate(_filePath: string, text: string): Finding[] {
   const out: Finding[] = [];
   for (const tag of scanTags(blanked)) {
     // A `<select multiple>` cannot be converted at all, so it reports as a blocker instead
-    // of a mechanical binding — emitting both for one element would contradict itself.
+    // of a mechanical binding; emitting both for one element would contradict itself.
     if (isBlockedSelectMultiple(tag)) {
       collectSelectMultiple(tag, lineAt, snippetAt, out);
       continue;

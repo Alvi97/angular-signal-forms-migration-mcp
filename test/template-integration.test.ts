@@ -3,11 +3,8 @@ import { findFormCandidates, type FileSystemPort } from '../src/core/detect.js';
 import { buildMigrationReport } from '../src/core/report.js';
 import { analyzeMigrationComplexity } from '../src/core/complexity.js';
 
-/**
- * The wiring: a `.html` file must flow through the same scan, complexity and report path as
- * `.ts`, so a component and its template are seen as one migration. This locks the plumbing
- * added in M7 — the detector has its own unit suite; this is about integration.
- */
+// A `.html` file must flow through the same scan/complexity/report path as `.ts`. The
+// detector has its own unit suite; this checks the wiring.
 function memoryFs(files: Readonly<Record<string, string>>): FileSystemPort {
   const paths = Object.keys(files);
   const directories = new Set<string>();

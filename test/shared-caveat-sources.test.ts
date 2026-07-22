@@ -1,18 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { allRecipes } from '../src/core/recipes.js';
 
-/**
- * A shared caveat quotes a specific page. Every recipe carrying it must cite that page.
- *
- * Three independent doc audits reported the same defect: the STABILITY quote — "if you need
- * production stability guarantees, reactive forms remain a solid choice" — is verbatim
- * correct and lives on the overview page, which almost no recipe listed in its sources. The
- * claims were true and the citations pointed somewhere the sentence does not appear, which
- * is the failure mode that makes provenance worthless: it looks sourced.
- *
- * Attaching sources by hand per recipe made this inevitable, so withProvenance now derives
- * them from the caveat text. These tests pin that.
- */
+// A shared caveat quotes a specific page; every recipe carrying it must cite that page.
+// withProvenance derives the citation from the caveat text, and these tests pin that.
 describe('shared caveats cite the page they quote', () => {
   const recipes = allRecipes();
 

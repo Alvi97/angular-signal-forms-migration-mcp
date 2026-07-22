@@ -5,17 +5,8 @@ import { getSignalFormsRecipe } from '../src/core/recipes.js';
 import type { FileFindings } from '../src/core/types.js';
 import type { FileSystemPort } from '../src/core/detect.js';
 
-/**
- * Spec files are excluded from the migration counts on purpose: a spec cannot be migrated
- * before the code it tests, so folding them into the totals would distort both the size and
- * the suggested order.
- *
- * Saying NOTHING about them was the wrong fix. A Reactive Forms spec builds forms and calls
- * setValue/markAsTouched/hasError — the same constructs the scanner already recognises — and
- * every one of them has to be rewritten under rules that differ from production code. A
- * report that says "148 findings" while forty spec files quietly also need work is
- * under-reporting the job.
- */
+// Spec files are excluded from the migration counts but still use the same constructs and
+// need rewriting, so the report lists them separately rather than staying silent.
 function fsWith(files: Readonly<Record<string, string>>): FileSystemPort {
   return {
     exists: (path) => path in files,

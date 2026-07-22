@@ -2,15 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { detectInSource } from '../src/core/detect.js';
 import type { Finding } from '../src/core/types.js';
 
-/**
- * Reactive Forms members that were real migration sites and invisible here.
- *
- * Found by diffing the public members of AbstractControl / FormGroup / FormArray /
- * FormControl against what this detector actually reports. Of 57 public members, four were
- * genuine edit sites with no coverage — the rest were directive lifecycle hooks and
- * internals. `items.at(i)` is the standard way to reach one FormArray entry, so missing it
- * understated the count on exactly the forms that are hardest to migrate.
- */
+// Reactive Forms members (`at`, `contains`, `length`, `defaultValue`) that are real edit
+// sites but were once invisible. `items.at(i)` reaches one FormArray entry.
 const SOURCE = (body: string): string => `import { FormArray, FormGroup } from '@angular/forms';
 
 export class C {

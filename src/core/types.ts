@@ -53,13 +53,11 @@ export const DETECTED_CONSTRUCTS = [
   'Validators.compose',
   'customValidator',
   'AbstractControl.get',
-  // Keyed and indexed lookups found by diffing the reactive control classes against what
-  // the detector actually reports — `items.at(i)` is the standard way to reach one
-  // FormArray entry, and it was invisible.
+  // Keyed and indexed lookups (`items.at(i)` reaches one FormArray entry).
   'AbstractControl.at',
   'AbstractControl.contains',
 
-  // M2 — dynamic and async
+  // M2: dynamic and async
   'FormArray',
   'FormBuilder.array',
   'FormGroup.addControl',
@@ -74,7 +72,7 @@ export const DETECTED_CONSTRUCTS = [
   'asyncValidator',
   'deadValidatorOption',
 
-  // M5 — reading and writing form state
+  // M5: reading and writing form state
   'AbstractControl.value',
   'AbstractControl.valid',
   'AbstractControl.invalid',
@@ -108,7 +106,7 @@ export const DETECTED_CONSTRUCTS = [
   'AbstractControl.clearValidators',
   'AbstractControl.setAsyncValidators',
 
-  // M3 — deep judgment
+  // M3: deep judgment
   'ControlValueAccessor',
   'valueChanges',
   'statusChanges',
@@ -121,8 +119,8 @@ export const DETECTED_CONSTRUCTS = [
 export type Construct = (typeof DETECTED_CONSTRUCTS)[number];
 
 /**
- * `mechanical` — a direct, low-risk transliteration the agent can apply confidently.
- * `judgment`   — the shape changes enough that a human must decide the target design.
+ * `mechanical`: a direct, low-risk transliteration the agent can apply confidently.
+ * `judgment`: the shape changes enough that a human must decide the target design.
  */
 export const classificationSchema = z.enum(['mechanical', 'judgment']);
 export type Classification = z.infer<typeof classificationSchema>;

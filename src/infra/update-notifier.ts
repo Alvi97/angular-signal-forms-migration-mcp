@@ -77,7 +77,7 @@ export function extractLatestVersion(body: unknown): string | undefined {
 /**
  * Checks for a newer release and reports it through `notify` (stderr, in practice).
  *
- * Safe to call without awaiting — every failure path resolves quietly.
+ * Safe to call without awaiting; every failure path resolves quietly.
  */
 export async function checkForUpdate(
   packageName: string,

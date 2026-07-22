@@ -2,13 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { availableConstructs, getSignalFormsRecipe } from '../src/core/recipes.js';
 import { DETECTED_CONSTRUCTS, recipeSchema } from '../src/core/types.js';
 
-/**
- * Constructs the detector emits that deliberately have no recipe yet.
- *
- * Empty as of M3: valueChanges/statusChanges were the last documented gap and are now
- * covered by the three tiered stream recipes. Keep the list — it is how a future
- * milestone records a gap without the coverage test silently failing.
- */
+// Constructs the detector emits that deliberately have no recipe yet. Currently empty; kept
+// so a future milestone can record a gap without the coverage test silently failing.
 const DEFERRED: readonly string[] = [];
 
 describe('getSignalFormsRecipe', () => {

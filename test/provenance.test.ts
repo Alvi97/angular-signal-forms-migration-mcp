@@ -4,12 +4,7 @@ import { allRecipes, getSignalFormsRecipe } from '../src/core/recipes.js';
 import { provenanceSchema } from '../src/core/types.js';
 import { VERIFIED_ANGULAR_VERSION } from '../src/core/version.js';
 
-/**
- * These are the CI gate on advice quality. A recipe with no source is
- * indistinguishable from one written out of a model's memory — which is the exact
- * failure this project has already hit twice (requiredTrue semantics, [control] vs
- * [formField]). Un-sourced recipes fail the build, not review.
- */
+// The CI gate on advice quality: a recipe with no source fails the build, not review.
 describe('every recipe is sourced', () => {
   const recipes = allRecipes();
 

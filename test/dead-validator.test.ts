@@ -8,16 +8,8 @@ function constructs(findings: readonly Finding[]): string[] {
   return findings.map((f) => f.construct);
 }
 
-/**
- * Found by a reader auditing a real report: reset-password.component.ts passes
- * `{ validator: this.checkPasswords }` — singular — to fb.group. AbstractControlOptions
- * declares `validators` (plural), so the option is silently ignored and the validator has
- * never run. Its template checks hasError('notMatching') in three places that can never
- * be true, so that form accepts mismatched passwords today.
- *
- * It matters here because a faithful migration would carry the dead validator across into
- * new dead code, and the rewrite would make it much harder to notice.
- */
+// The singular `{ validator: fn }` key isn't an AbstractControlOptions key (it's `validators`),
+// so `new FormGroup` drops it and the validator never runs. A live bug, not migration work.
 describe('silently dead validator options', () => {
   it.each([['validator'], ['asyncValidator']])(
     'flags the singular `%s` key on `new FormGroup`',

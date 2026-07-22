@@ -6,14 +6,8 @@ import { allRecipes } from '../src/core/recipes.js';
 const root = new URL('../', import.meta.url);
 const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, root)), 'utf8');
 
-/**
- * Every fixture, enumerated rather than listed.
- *
- * This was a hardcoded array, and it went stale the moment fixtures were added for the
- * compat/interop surface: the harness reported the new module as unexercised while the file
- * exercising it sat right next to the ones on the list. A coverage check that has to be
- * kept in sync by hand will eventually be wrong in the direction that hides a gap.
- */
+// Fixtures are enumerated from the directory, not a hardcoded list, which went stale and
+// hid a gap.
 const FIXTURE_DIR = 'verify/src';
 const fixtureFiles = (): string[] =>
   readdirSync(fileURLToPath(new URL(FIXTURE_DIR, root)))

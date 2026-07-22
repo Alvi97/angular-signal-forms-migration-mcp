@@ -2,21 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { detectInSource } from '../src/core/detect.js';
 import type { Finding } from '../src/core/types.js';
 
-/**
- * Calls made on a CONTROL rather than on the form object.
- *
- * Found by running the server against a real migration: mockio-master's login component
- * ends a failed sign-in with
- *
- *     this.loginForm.get('password')?.setErrors({ invalidCredentials: true });
- *
- * and the file was reported as 100% mechanical. Only the `.get()` matched; the
- * no-counterpart `setErrors()` hanging off it did not, because the receiver was a call
- * expression rather than a bound form name. The migrating agent caught it by eye.
- *
- * Under-reporting difficulty is the worst failure this tool has: "all mechanical" is read
- * as "safe transliteration", and these are the calls that are not.
- */
+// Calls on a control fished out of a form, e.g. `form.get('password')?.setErrors(...)`. The
+// receiver is a call expression, not a bound form name, so these were once missed entirely.
 function constructs(source: string): string[] {
   return detectInSource('login.component.ts', source).map((f) => f.construct);
 }
@@ -71,11 +58,7 @@ export class C {
   });
 });
 
-/**
- * The per-control getter is the standard way to reach a control from a template, so it is
- * also how components reach it from TypeScript. An alias is not itself typed as a form,
- * which made every call through one invisible.
- */
+// A per-control getter is not itself typed as a form, so calls through it were invisible.
 describe('per-control getter aliases', () => {
   const withGetter = (body: string): string =>
     `${HEADER}
@@ -129,15 +112,10 @@ export class C {
   });
 });
 
-/**
- * Two receiver-resolution gaps found by a corpus run across six real Angular repos.
- *
- * Both under-report DIFFICULTY — they miss judgment-tier calls — which is the worst way for
- * this tool to be wrong: "all mechanical" reads as "safe transliteration".
- */
+// Two receiver-resolution gaps from a corpus run; both miss judgment-tier calls.
 describe('a control reached through an `as` cast', () => {
-  // (form.get('items') as FormArray).push(...) is the dominant idiom, because get() is
-  // typed AbstractControl | null and people cast to reach array/control members.
+  // (form.get('items') as FormArray).push(...) is the dominant idiom, since get() returns
+  // AbstractControl | null and people cast to reach array/control members.
   it.each([
     [`(this.form.get('items') as FormArray).push(this.build());`, 'FormArray.push'],
     [`(this.form.get('items') as FormArray).removeAt(0);`, 'FormArray.removeAt'],
@@ -199,16 +177,8 @@ describe('a method-local const alias of a control', () => {
   });
 });
 
-/**
- * Form built by a factory method — found in a 50-repo corpus run (Ismaestro/angular-example-app
- * and others). Angular's own guidance encourages extracting form construction into a helper:
- *
- *     readonly registerForm = this.createRegisterForm();
- *     private createRegisterForm() { return this.fb.group({ ... }); }
- *
- * The field is not typed as a form and its initializer is a plain method call, so it was
- * invisible — hiding EVERY use of the form and mislabelling the file as "reference only".
- */
+// Form built by a factory method (`readonly form = this.createForm()`), a common pattern
+// that hid every use of the form until the factory was recognised.
 describe('a form built by a factory method', () => {
   const withFactory = (usages: string, factoryBody: string): string =>
     `import { FormBuilder, FormControl, Validators } from '@angular/forms';
@@ -258,19 +228,8 @@ export class C {
   });
 });
 
-/**
- * The boundary of receiver resolution, pinned so it cannot drift by accident.
- *
- * An enterprise-corpus run (a 498k-LOC Angular 7 EMR) uses FormGroups stored as properties
- * on DOMAIN-MODEL objects, named `*Validator`, and accessed cross-object:
- *
- *     this.selectedSection.SectionValidator.controls[i].updateValueAndValidity();
- *
- * Proving `this.selectedSection.SectionValidator` is a form needs cross-file type resolution
- * (the detector has no ts.Program), so this is a documented known miss — see ROADMAP. The
- * SAME-object shape, a FormGroup-typed field on the component itself, IS resolved. These two
- * assertions fix that line: a future change that flips either is then a deliberate one.
- */
+// The boundary: a FormGroup-typed field on the same object is resolved; a form stored on a
+// referenced model object (needs cross-file types) is a documented miss. See ROADMAP.
 describe('receiver-resolution boundary (documented)', () => {
   it('DETECTS a FormGroup-typed field accessed on the same object', () => {
     const source = `import { FormGroup, FormBuilder } from '@angular/forms';

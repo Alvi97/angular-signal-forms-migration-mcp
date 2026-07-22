@@ -1,19 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { getSignalFormsRecipe } from '../src/core/recipes.js';
 
-/**
- * The template half of a migration.
- *
- * Recipes described the TypeScript rewrite and stopped, so the strings a template must
- * match on were left unsourced — an agent migrating a real login form went and read
- * node_modules to find them. Two of the keys are renamed, and getting one wrong fails
- * silently: `e.kind === 'minlength'` is valid TypeScript that is never true, so the error
- * message just disappears with nothing to debug.
- *
- * The kinds themselves are compile-pinned against real @angular/forms v22 in
- * verify/src/submission-and-error-kinds.ts, including two @ts-expect-error assertions that
- * the lowercase spellings are rejected. This file pins the ADVICE to those same strings.
- */
+// Error-kind strings a template must match on. Two keys are renamed and a stale one fails
+// silently. Kinds are compile-pinned in verify/; this pins the advice to them.
 function caveatsFor(construct: string): string {
   const recipe = getSignalFormsRecipe(construct);
   if (!recipe.found) throw new Error(`missing recipe: ${construct}`);

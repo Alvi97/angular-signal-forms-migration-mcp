@@ -1,12 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { SERVER_INSTRUCTIONS } from '../src/server.js';
 
-/**
- * The `instructions` string is injected into the calling agent's context at handshake.
- * It is the only channel this server has for shaping HOW its output gets used, so the
- * rules that are expensive to get wrong belong here rather than only in a README nobody
- * pipes into the model.
- */
+// The `instructions` string is injected into the agent's context at handshake, so the rules
+// that are expensive to get wrong belong here rather than only in the README.
 describe('server instructions', () => {
   it('leads with the architectural rule', () => {
     expect(SERVER_INSTRUCTIONS.slice(0, 400)).toMatch(/never edits|does not edit/i);

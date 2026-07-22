@@ -2,11 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { assessCoverage } from '../src/core/coverage.js';
 import { memoryFs } from './helpers/memory-fs.js';
 
-/**
- * Three separate live sessions independently flagged that the files being rewritten have
- * no covering tests — "my verification signal is the compiler, not the tests". That is a
- * first-class migration risk and the report never mentioned it.
- */
+// Whether the files being rewritten have covering tests: a first-class migration risk.
 describe('assessCoverage', () => {
   const fs = memoryFs({
     '/repo/a.component.ts': 'x',

@@ -1,18 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { getSignalFormsRecipe } from '../src/core/recipes.js';
 
-/**
- * The only migration hazard found so far that no amount of TypeScript can catch.
- *
- * Reactive Forms stamps ng-valid / ng-invalid / ng-touched / ng-dirty onto every bound
- * element. Signal Forms does not, and the migration guide says so outright. Nothing in a
- * build, a type-check or a test suite observes CSS class names, so a migrated app compiles
- * green and quietly loses its error styling everywhere at once.
- *
- * Two independent doc audits surfaced this as their top finding. It had no coverage at all:
- * there is no Reactive Forms *construct* to detect, because the damage lives in .scss files
- * the scanner never opens.
- */
+// Signal Forms emits no ng-* status classes, so a migrated app silently loses error styling.
+// No TypeScript catches it; the damage lives in .scss the scanner never opens.
 describe('the ng-* status classes recipe', () => {
   const recipe = getSignalFormsRecipe('statusClasses');
 
