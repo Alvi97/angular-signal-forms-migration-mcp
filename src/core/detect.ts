@@ -1,16 +1,8 @@
 /**
- * Reactive Forms detection — pure.
- *
- * Parsing uses the TypeScript compiler API (`ts.createSourceFile`), NOT regex.
- * We deliberately do not build a full `ts.Program`: that would require resolving
- * the user's tsconfig and node_modules on every call, which is slow and fails on
- * partial checkouts. The cost is that we have no TypeChecker, so `fb.group(...)`
- * cannot be *proven* to be a FormBuilder call. We compensate with a two-pass scan
- * that first binds local identifiers to FormBuilder, then only matches calls on
- * those names.
- *
- * All filesystem access is injected via `FileSystemPort` so the core stays pure
- * and unit-testable without touching disk.
+ * Reactive Forms detection (pure). Parses with the TypeScript compiler API, not a full
+ * `ts.Program` (which would need the user's tsconfig and node_modules). Without a
+ * TypeChecker, a two-pass scan binds local identifiers to FormBuilder first, then matches
+ * calls on those names. Filesystem access is injected via `FileSystemPort`.
  */
 import ts from 'typescript';
 import { detectInTemplate } from './detect-template.js';
@@ -52,16 +44,8 @@ const SKIPPED_DIRECTORIES: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Angular spec files are excluded from the migration counts per SPEC.md — they test forms,
- * they don't ship them, and a spec cannot be migrated before the code it tests, so counting
- * them would distort both the totals and the suggested order.
- *
- * They are NOT ignored: assessCoverage runs detection over each spec and the report lists
- * the ones using Reactive Forms separately, because they need rewriting too under different
- * rules (see the `testing` recipe). Excluding them from the count is a scoping decision;
- * staying silent about them was under-reporting the job.
- *
- * `.html` templates are scanned too — half of every migration lives there.
+ * Spec files are excluded from the migration counts (per SPEC.md); assessCoverage still runs
+ * detection over them and the report lists them separately. `.html` templates are scanned.
  */
 function isScannableFile(fileName: string): boolean {
   if (fileName.endsWith('.html')) return true;
@@ -86,15 +70,10 @@ function baseName(pathLike: string): string {
 /* -------------------------------------------------------------------------- */
 
 /**
- * Built-in validators with a direct one-to-one Signal Forms counterpart.
- * Anything outside this set is treated as judgment: the agent must not guess.
- *
- * `requiredTrue` is here because `required()` "treats false as missing (invalid), matching
- * <input type=checkbox required>". This comment used to add that v21 behaved differently and
- * that the substitution was therefore version-sensitive. It is not: `isEmpty` is byte-identical
- * in @angular/forms 21.0.0 and 22.0.7, both testing `value === false`. Only v21's DOCS omitted
- * the sentence — a documentation gap read as a behaviour.
- * Source: https://angular.dev/guide/forms/signals/validation#required
+ * Built-in validators with a one-to-one Signal Forms counterpart; anything else is judgment.
+ * `requiredTrue` maps to `required()`, which treats `false` as missing on both v21 and v22
+ * (isEmpty is byte-identical across those releases).
+ * https://angular.dev/guide/forms/signals/validation#required
  */
 const MECHANICAL_VALIDATORS: ReadonlySet<string> = new Set([
   'required',
@@ -107,11 +86,7 @@ const MECHANICAL_VALIDATORS: ReadonlySet<string> = new Set([
   'pattern',
 ]);
 
-/**
- * Control types that identify a variable as holding a Reactive Forms object.
- * Used both to report type-position usage and to decide whether `x.get('k')` is a
- * form accessor or an unrelated `Map`/`HttpParams` lookup.
- */
+/** Types that mark a variable as a Reactive Forms object, so `x.get('k')` isn't a Map lookup. */
 const CONTROL_TYPES: ReadonlySet<string> = new Set([
   'FormGroup',
   'FormControl',
@@ -126,11 +101,7 @@ const REPORTED_CONTROL_TYPES: ReadonlySet<string> = new Set([
   'FormArray',
 ]);
 
-/**
- * Methods that mutate a form's SHAPE at runtime. Signal Forms derives its field tree from
- * the model signal's type, so there is no equivalent imperative surface — the shape must
- * be expressed in the model instead. Always judgment.
- */
+/** Methods that mutate a form's shape at runtime. No Signal Forms equivalent, so judgment. */
 const GROUP_MUTATORS: ReadonlySet<string> = new Set([
   'addControl',
   'removeControl',
@@ -139,15 +110,9 @@ const GROUP_MUTATORS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * RxJS operator tiers for a form stream.
- *
- * Scope: this analysis is rooted at `.valueChanges` / `.statusChanges` only, so it can
- * never wander into unrelated RxJS. Classifying arbitrary observables is a different
- * product — see ROADMAP.md.
- *
- * `moderate` operators are value transforms with a documented signal equivalent
- * (computed / the debounce() rule). `hard` operators coordinate other async sources, and
- * signals have no direct equivalent — the recipe says so rather than inventing one.
+ * RxJS operator tiers for a form stream, rooted only at `.valueChanges` / `.statusChanges`.
+ * `moderate` operators have a signal equivalent (computed / the debounce() rule); `hard`
+ * ones coordinate other async sources and have no direct equivalent.
  */
 const MODERATE_OPERATORS: ReadonlySet<string> = new Set([
   'map',
@@ -178,11 +143,7 @@ const HARD_OPERATORS: ReadonlySet<string> = new Set([
   'reduce',
 ]);
 
-/**
- * AbstractControl state read directly off a form. Each has a signal counterpart on the
- * field state — `form.invalid` becomes `f().invalid()` — so these are mechanical, but they
- * are still edit sites and were previously invisible.
- */
+/** State read off a form (`form.invalid` -> `f().invalid()`): mechanical, but real edit sites. */
 const STATE_READS: ReadonlySet<string> = new Set([
   'value',
   'valid',
@@ -193,12 +154,9 @@ const STATE_READS: ReadonlySet<string> = new Set([
   'pristine',
   'pending',
   'controls',
-  // FormArray.length — `items.length` and `items.controls.length` are how nearly every
-  // template asks "is the list empty?". Found by diffing the reactive control classes
-  // against what this detector reports: 4 of the 57 public members were real migration
-  // sites and invisible here.
+  // `items.length` / `items.controls.length` — the usual "is the list empty?" check.
   'length',
-  // FormControl.defaultValue — only meaningful alongside reset(), whose semantics change.
+  // Only meaningful next to reset(), whose semantics change.
   'defaultValue',
 ]);
 
@@ -212,13 +170,10 @@ const CONTROL_WRITES_MECHANICAL: ReadonlySet<string> = new Set([
   'reset',
   'getRawValue',
   'hasError',
-  // These DO exist on Signal Forms field state — verified by compiling them against
-  // @angular/forms v22. They were previously classified judgment on the false assumption
-  // that all imperative state APIs were removed.
+  // These exist on Signal Forms field state (verified against v22). markAllAsTouched maps to
+  // markAsTouched(), which covers descendants by default, so it's a rename.
   'markAsTouched',
   'markAsDirty',
-  // markAsTouched() covers descendants by default, so this is a rename, not a redesign.
-  // Reported judgment until an agent read the typings and correctly called the advice stale.
   'markAllAsTouched',
 ]);
 
@@ -262,12 +217,7 @@ interface FindingDraft {
   definesForm?: boolean;
 }
 
-/**
- * Detects Reactive Forms constructs in a single TypeScript source text.
- *
- * Pure: takes the text, returns findings. Never throws on malformed input —
- * the TS parser is error-tolerant and produces a best-effort tree.
- */
+/** Detects Reactive Forms constructs in one source text. Never throws; the TS parser is tolerant. */
 export function detectInSource(filePath: string, text: string): Finding[] {
   const sourceFile = ts.createSourceFile(
     filePath,
@@ -310,28 +260,17 @@ function importsAngularForms(sourceFile: ts.SourceFile): boolean {
 /* Pass 1 — bind identifiers to FormBuilder                                    */
 /* -------------------------------------------------------------------------- */
 
-/**
- * Finds every local name that holds a FormBuilder, covering both DI styles:
- *   constructor(private fb: FormBuilder) {}
- *   private readonly fb = inject(FormBuilder);
- */
 /** Local names bound during pass 1, consumed by pass 2. */
 interface BoundNames {
-  /** Names holding a FormBuilder, so `fb.group(...)` can be matched without a TypeChecker. */
+  /** Names holding a FormBuilder, so `fb.group(...)` matches without a TypeChecker. */
   readonly formBuilders: ReadonlySet<string>;
-  /** Names holding a form object, so `form.get('k')` is distinguishable from `map.get('k')`. */
+  /** Names holding a form object, so `form.get('k')` differs from `map.get('k')`. */
   readonly forms: ReadonlySet<string>;
-  /** Names whose shape is mutated at runtime — those forms cannot be a static model. */
+  /** Names mutated at runtime; those forms cannot be a static model, so they're judgment. */
   readonly mutated: ReadonlySet<string>;
 }
 
-/**
- * Names that have a shape-mutating method called on them anywhere in the file.
- *
- * A `new FormArray([...])` that is only ever read is a plain list in the model signal.
- * One that is pushed to is a dynamic structure, and the migration is a design decision
- * rather than a rename — so the declaration itself has to be downgraded to judgment.
- */
+/** Names with a shape-mutating method called on them, which downgrades them to judgment. */
 function collectMutatedNames(sourceFile: ts.SourceFile): ReadonlySet<string> {
   const names = new Set<string>();
 
@@ -368,11 +307,8 @@ function assignedName(node: ts.Node): string | undefined {
 }
 
 /**
- * Finds every local name that holds a Reactive Forms object, whether it was annotated
- * (`profileForm: FormGroup`) or initialised (`= fb.group({...})`, `= new FormGroup(...)`).
- *
- * Without this, reporting `x.get('key')` would also flag every `Map`, `HttpParams` and
- * `queryParamMap` lookup that happens to live in a file importing @angular/forms.
+ * Names holding a Reactive Forms object, annotated (`profileForm: FormGroup`) or initialised
+ * (`= fb.group({...})`). This is what keeps `x.get('key')` from flagging Map/HttpParams lookups.
  */
 function collectFormLikeNames(sourceFile: ts.SourceFile): ReadonlySet<string> {
   const names = new Set<string>();
@@ -395,15 +331,8 @@ function collectFormLikeNames(sourceFile: ts.SourceFile): ReadonlySet<string> {
 
 /**
  * Binds `readonly registerForm = this.createRegisterForm();` where the method builds a form.
- *
- * Angular's own guidance encourages extracting form construction into a helper method, and a
- * corpus run found it in real apps. The field is not typed as a form and its initializer is a
- * plain method call, so it was invisible — which hid EVERY use of the form (`.get()`,
- * `.markAllAsTouched()`, `.getRawValue()`), and mislabelled the file as "reference only".
- *
- * A method counts as a form factory only when its body returns a form CONSTRUCTION
- * (`new FormGroup(...)`, `fb.group(...)`, or another form factory). That keeps a method named
- * `getForm()` that returns `this.http.get(...)` out.
+ * A method counts as a factory only when its body returns a form construction (or another
+ * factory), so a `getForm()` returning `this.http.get(...)` is excluded.
  */
 function bindFactoryBuiltForms(sourceFile: ts.SourceFile, names: Set<string>): void {
   const factories = new Set<string>();
@@ -443,7 +372,7 @@ function methodReturnsForm(node: ts.MethodDeclaration, factories: ReadonlySet<st
   let found = false;
   const visit = (child: ts.Node): void => {
     if (found) return;
-    // Do not descend into nested functions — their returns are not this method's.
+    // Nested functions have their own returns, not this method's.
     if (ts.isFunctionDeclaration(child) || ts.isFunctionExpression(child)) return;
     if (ts.isReturnStatement(child) && child.expression !== undefined) {
       if (isFormConstruction(child.expression, factories)) found = true;
@@ -477,7 +406,7 @@ function isFormConstruction(expr: ts.Expression, factories: ReadonlySet<string>)
   if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
     const method = declaredName(node.expression.name);
     if (method === 'group' || method === 'array' || method === 'control') return true;
-    // A factory that just delegates to another factory: `return this.buildBase();`
+    // A factory delegating to another factory: `return this.buildBase();`
     if (
       method !== undefined &&
       factories.has(method) &&
@@ -490,12 +419,9 @@ function isFormConstruction(expr: ts.Expression, factories: ReadonlySet<string>)
 }
 
 /**
- * Binds the `get email() { return this.loginForm.get('email'); }` idiom.
- *
- * Angular templates cannot call `.get()`, so components expose one accessor per control and
- * then use those accessors from TypeScript too. Every call through such an alias —
- * `this.email?.setErrors(...)` — was invisible, because the alias is not itself typed as a
- * form. Resolving them is a fixpoint: one alias may be defined in terms of another.
+ * Binds the `get email() { return this.loginForm.get('email'); }` accessor idiom, so calls
+ * through the alias (`this.email?.setErrors(...)`) are seen. A fixpoint, since one alias may
+ * be defined in terms of another.
  */
 function bindControlAliases(sourceFile: ts.SourceFile, names: Set<string>): void {
   const candidates: { name: string; expression: ts.Expression }[] = [];
@@ -537,11 +463,8 @@ function aliasedExpression(node: ts.Node): ts.Expression | undefined {
     return undefined;
   }
   if (ts.isPropertyDeclaration(node) && node.initializer !== undefined) return node.initializer;
-  // `const phoneControl = this.form.get('phone')` — a method-local alias. Only bound when
-  // the initializer is provably form-derived (the fixpoint checks isFormDerivedReceiver), so
-  // `const x = someService.load()` never binds. Catches imperative calls (setValidators,
-  // setErrors, updateValueAndValidity) on the alias, which are judgment sites that were
-  // being missed — under-reporting difficulty on exactly the files that have the most of it.
+  // Method-local alias (`const phoneControl = this.form.get('phone')`). The fixpoint only
+  // binds it when the initializer is provably form-derived, so `const x = svc.load()` doesn't.
   if (ts.isVariableDeclaration(node) && node.initializer !== undefined) return node.initializer;
   return undefined;
 }
@@ -658,12 +581,9 @@ function collectFromNode(node: ts.Node, names: BoundNames, out: FindingDraft[]):
 }
 
 /**
- * A ControlValueAccessor component. v22 replaces the whole interface with
- * `FormValueControl` / `FormCheckboxControl`.
- *
- * Reported once per class, from the class declaration, because a CVA is recognisable two
- * ways — `implements ControlValueAccessor` and the `NG_VALUE_ACCESSOR` provider — and real
- * components almost always do both. Reporting each separately would double-count.
+ * A ControlValueAccessor component (replaced by FormValueControl / FormCheckboxControl in
+ * v22). Reported once per class, since a CVA is recognisable both by `implements` and by the
+ * `NG_VALUE_ACCESSOR` provider and real components use both.
  */
 function collectControlValueAccessor(node: ts.ClassDeclaration, out: FindingDraft[]): void {
   const implementsCva = (node.heritageClauses ?? []).some(
@@ -708,9 +628,8 @@ function providesNgValueAccessor(node: ts.ClassDeclaration): boolean {
 }
 
 /**
- * `form.get('email')` — a string-keyed lookup with no Signal Forms counterpart; the field
- * tree is reached by dot notation instead. Only matched on receivers pass 1 bound to a
- * form, so `map.get(k)` and `queryParamMap.get(k)` stay out of the report.
+ * `form.get('email')` and friends: string-keyed lookups reached by dot notation instead.
+ * Only matched on form-bound receivers, so `map.get(k)` stays out.
  */
 function collectFromControlGet(
   node: ts.CallExpression,
@@ -736,13 +655,7 @@ function collectFromControlGet(
   });
 }
 
-/**
- * String- or index-keyed lookups into a form.
- *
- * `at` and `contains` were invisible until the reactive control classes were diffed against
- * what this file reports. `items.at(i)` is the standard way to touch one FormArray entry, so
- * missing it understated the edit count on exactly the forms that are hardest to migrate.
- */
+/** String- or index-keyed lookups into a form (`form.get('k')`, `items.at(i)`). */
 const KEYED_LOOKUPS: ReadonlySet<string> = new Set(['get', 'at', 'contains']);
 
 const KEYED_LOOKUP_REASONS: Readonly<Record<string, string>> = {
@@ -762,14 +675,9 @@ const COMPUTED_KEY_REASON =
   'must be redesigned around the typed field tree.';
 
 /**
- * `form.invalid`, `form.value`, `form.controls` — state read straight off the form object.
- *
- * Each maps to a signal call on the field state (`f().invalid()`), so these are mechanical.
- * They were previously invisible, which understated the edit count: mockio-master's
- * "simplest, all-mechanical" file turned out to have two of them.
- *
- * `.status` is the exception — it was a string union ('VALID' | 'INVALID' | …) and Signal
- * Forms has no equivalent, so it is judgment.
+ * State read off the form object (`form.invalid`, `form.value`, `form.controls`), each mapping
+ * to a signal call (`f().invalid()`), so mechanical. `.status` is judgment: it was a string
+ * union with no Signal Forms equivalent.
  */
 function collectFromStateRead(
   node: ts.PropertyAccessExpression,
@@ -779,8 +687,7 @@ function collectFromStateRead(
   const member = declaredName(node.name);
   if (member === undefined) return;
 
-  // `form.reset()` is a call, reported by collectFromControlApi. Without this guard the
-  // callee would also be counted here as a read of a `reset` property.
+  // `form.reset()` is a call (reported elsewhere); don't also count it as a `reset` read.
   if (isCallee(node)) return;
 
   const isStatus = member === 'status';
@@ -837,11 +744,8 @@ function isCallee(node: ts.PropertyAccessExpression): boolean {
 }
 
 /**
- * `form.patchValue(...)`, `form.markAllAsTouched()`, `form.reset()` and friends.
- *
- * Split by whether the intent survives: value writes and reset() have a Signal Forms home,
- * while the markAs / setErrors / enable family does not — state there is derived from
- * rules, so the call has to be replaced by a rule or by submission behaviour.
+ * Write calls (`patchValue`, `markAllAsTouched`, `reset`, ...). Value writes and reset() have
+ * a Signal Forms home (mechanical); the markAs / setErrors / enable family does not (judgment).
  */
 function collectFromControlApi(
   node: ts.CallExpression,
@@ -871,12 +775,7 @@ function collectFromControlApi(
   });
 }
 
-/**
- * Why a mechanical write is mechanical — and, for two of them, what quietly changes.
- *
- * Both notes come from migrations that hit them: `reset()` looks like a rename and is not,
- * and `markAllAsTouched()` was reported as a redesign when it is a rename.
- */
+/** The reason string for a mechanical write; reset() and markAllAsTouched() carry extra notes. */
 function mechanicalWriteReason(method: string): string {
   if (method === 'reset') {
     return (
@@ -929,8 +828,7 @@ function collectFromShapeMutation(
   // Without this gate, any `push` in a forms file would be reported.
   if (!isFormDerivedReceiver(callee.expression, formNames)) return;
 
-  // `setControl` exists on both; attribute it to the array only when the receiver is not
-  // group-shaped, which we cannot know without a TypeChecker — so prefer the group name.
+  // `setControl` exists on both; without a TypeChecker we can't tell, so prefer the group.
   const owner = isGroupMutator ? 'FormGroup' : 'FormArray';
 
   out.push({
@@ -945,29 +843,16 @@ function collectFromShapeMutation(
 }
 
 /**
- * `{ validator: fn }` — the SINGULAR key, which AbstractControlOptions does not declare.
- *
- * ONLY reported for `new FormGroup/FormControl/FormArray`, never for FormBuilder. The two
- * take opposite paths through Angular's own source, and an earlier version of this check
- * conflated them — telling a user their password-match validator had never run when it had:
- *
- *   new FormGroup(c, { validator: fn })
- *     isOptionsObj({validator}) is TRUE (any non-array object), so pickValidators reads
- *     `.validators`, finds undefined, and the validator IS DROPPED.
- *
- *   fb.group(c, { validator: fn })
- *     isAbstractControlOptions({validator}) is FALSE (it looks for validators /
- *     asyncValidators / updateOn), so it falls into a legacy branch that assigns
- *     `newOptions.validators = options.validator` — the validator RUNS.
- *
- * Verified against @angular/forms@22 source: pickValidators/isOptionsObj around forms.mjs
- * :809-828, FormBuilder.group around :5480.
+ * The singular `{ validator: fn }` key, which AbstractControlOptions does not declare. Only
+ * reported for `new FormGroup/FormControl/FormArray`, where Angular drops it; FormBuilder maps
+ * the legacy key and is excluded. Verified against @angular/forms@22 source (pickValidators /
+ * FormBuilder.group).
  */
 function collectFromDeadValidatorOption(node: ts.PropertyAssignment, out: FindingDraft[]): void {
   const key = declaredName(node.name);
   if (key !== 'validator' && key !== 'asyncValidator') return;
 
-  // Only `new FormX(...)`, never fb.group(...) — see the note above.
+  // Only `new FormX(...)`, never fb.group(...).
   if (!isConstructorOptionsObject(node.parent)) return;
 
   out.push({
@@ -985,12 +870,7 @@ function collectFromDeadValidatorOption(node: ts.PropertyAssignment, out: Findin
   });
 }
 
-/**
- * True when this object literal is an argument to `new FormGroup/FormControl/FormArray`.
- *
- * Deliberately excludes FormBuilder calls: they accept the legacy singular key and map it,
- * so flagging them produces a false report of dead validation.
- */
+/** True when this object literal is an argument to `new FormGroup/FormControl/FormArray`. */
 function isConstructorOptionsObject(node: ts.Node | undefined): boolean {
   if (node === undefined || !ts.isObjectLiteralExpression(node)) return false;
 
@@ -1015,16 +895,15 @@ function collectFromAsyncValidatorsOption(node: ts.PropertyAssignment, out: Find
 }
 
 /**
- * A custom validator that is NOT annotated `ValidatorFn` — the shape real code uses for
- * cross-field checks, e.g. `passwordMatchValidator(group: FormGroup)`. Missing these makes
- * a file look 100% mechanical when it contains the only judgment call in the migration.
+ * A custom validator not annotated `ValidatorFn`, e.g. `passwordMatchValidator(group:
+ * FormGroup)`. Missing these makes a file look all-mechanical when it holds the one judgment call.
  */
 function collectCustomValidatorDeclaration(
   node: ts.SignatureDeclaration,
   out: FindingDraft[],
 ): void {
-  // The factory pattern `static x(): ValidatorFn { return (c: AbstractControl) => ... }`
-  // is already reported at the ValidatorFn annotation; don't report the inner arrow too.
+  // The factory `static x(): ValidatorFn { return (c) => ... }` is already reported at the
+  // annotation; skip the inner arrow.
   if (hasValidatorAncestor(node)) return;
 
   const parameterTypes = node.parameters.map((parameter) => typeReferenceName(parameter.type));
@@ -1034,8 +913,8 @@ function collectCustomValidatorDeclaration(
   const name = functionLikeName(node);
   const namedLikeValidator = name !== undefined && /validat/i.test(name);
 
-  // An AbstractControl parameter is validator-shaped on its own. Any other control type
-  // needs the name to agree, or ordinary helpers taking a FormGroup would be swept in.
+  // An AbstractControl param is validator-shaped alone; other control types need the name to
+  // agree, or ordinary helpers taking a FormGroup get swept in.
   if (!takesAbstractControl && !(takesControl && namedLikeValidator)) return;
 
   out.push({
@@ -1128,10 +1007,7 @@ function collectFromNewExpression(
   }
 }
 
-/**
- * Classification guard only. FormArray is not a reported M1 construct (it lands in
- * M2), but a group that contains one must never be labelled "mechanical".
- */
+/** True when a FormGroup nests a FormArray or child group, so it can't be "mechanical". */
 function containsNestedCollection(node: ts.NewExpression): boolean {
   let found = false;
   const visit = (child: ts.Node): void => {
@@ -1233,25 +1109,15 @@ function isKnownReceiver(receiver: ts.Node, names: ReadonlySet<string>): boolean
 }
 
 /**
- * True for the form object itself AND for any single control reached through it.
- *
- * Reactive Forms code rarely calls the interesting methods on the form — it calls them on a
- * control fished out of the form, and `?.` is idiomatic because `.get()` returns
- * `AbstractControl | null`. Matching only the bare form name made every one of those calls
- * invisible:
- *
- *     this.loginForm.get('password')?.setErrors({ invalidCredentials: true });
- *
- * That was reported as a single mechanical `AbstractControl.get`, so a file whose hardest
- * edit is a no-counterpart `setErrors()` was ranked "all mechanical, safe transliteration".
- * Under-reporting difficulty is worse than missing a finding: it sends an agent in
- * expecting a rename.
+ * True for the form object itself and for any single control reached through it, e.g.
+ * `this.loginForm.get('password')?.setErrors(...)`. Reactive code usually calls methods on a
+ * control fished out of the form, so matching only the bare form name misses those.
  */
 function isFormDerivedReceiver(receiver: ts.Node, formNames: ReadonlySet<string>): boolean {
   const node = unwrapReceiver(receiver);
   if (isKnownReceiver(node, formNames)) return true;
 
-  // form.get('email') / items.at(0) — one control out of a form-derived expression.
+  // form.get('email') / items.at(0): one control out of a form-derived expression.
   if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
     const method = declaredName(node.expression.name);
     if (method === 'get' || method === 'at') {
@@ -1280,13 +1146,13 @@ function isControlsAccess(node: ts.Node, formNames: ReadonlySet<string>): boolea
   return isFormDerivedReceiver(inner.expression, formNames);
 }
 
-/** Strips the syntax that decorates a receiver without changing what it refers to. */
+/**
+ * Strips `!`, parens, `as T` and `satisfies T`, which decorate a receiver without changing
+ * what it refers to. The `as` case matters most: `(form.get('items') as FormArray).push(...)`
+ * is the dominant idiom, since get() returns AbstractControl | null.
+ */
 function unwrapReceiver(node: ts.Node): ts.Node {
   let current = node;
-  // `!`, `( )`, `as T` and `satisfies T` all decorate a receiver without changing what it
-  // refers to. The `as` case is the important one: casting a `.get()` result to FormArray/
-  // FormControl is the dominant Reactive Forms idiom (get() returns AbstractControl | null),
-  // so `(form.get('items') as FormArray).push(...)` was invisible until this unwrapped it.
   while (
     ts.isNonNullExpression(current) ||
     ts.isParenthesizedExpression(current) ||
@@ -1325,10 +1191,8 @@ function collectFromPropertyAccess(node: ts.PropertyAccessExpression, out: Findi
 type StreamTier = 'trivial' | 'moderate' | 'hard';
 
 /**
- * Walks the `.pipe(...)` chain hanging off a form stream and grades it.
- *
- * The hardest operator present decides the tier: a chain that ends in switchMap is a
- * switchMap problem no matter how many maps precede it.
+ * Grades the `.pipe(...)` chain on a form stream. The hardest operator present sets the tier:
+ * a chain containing switchMap is a switchMap problem regardless of the maps before it.
  */
 function collectFromFormStream(
   node: ts.PropertyAccessExpression,
@@ -1342,8 +1206,7 @@ function collectFromFormStream(
   const tier: StreamTier = hard.length > 0 ? 'hard' : moderate.length > 0 ? 'moderate' : 'trivial';
   const listed = [...new Set(tier === 'hard' ? hard : moderate)].join(', ');
 
-  // Distinct constructs so each tier can carry its own recipe, and so the complexity
-  // breakdown separates "a subscribe" from "a switchMap pipeline".
+  // Distinct constructs so each tier carries its own recipe.
   const construct =
     tier === 'trivial'
       ? property
@@ -1367,12 +1230,7 @@ function collectFromFormStream(
   out.push({ construct, node, classification: 'judgment', reason });
 }
 
-/**
- * Operator names inside `.pipe(...)` applied to `node`.
- *
- * Only looks at the pipe attached directly to this stream, so it cannot stray into
- * unrelated RxJS elsewhere in the file.
- */
+/** Operator names inside the `.pipe(...)` attached directly to this stream. */
 function pipedOperators(node: ts.PropertyAccessExpression): string[] {
   const parent: ts.Node | undefined = node.parent;
   if (parent === undefined || !ts.isPropertyAccessExpression(parent)) return [];
@@ -1422,12 +1280,11 @@ function collectFromTypeReference(node: ts.TypeReferenceNode, out: FindingDraft[
     return;
   }
 
-  // A form is very often only ever *declared* by its type (`loginForm: FormGroup;`) and
-  // built later through FormBuilder, so type position is real usage, not a duplicate.
+  // A form is often only declared by its type (`loginForm: FormGroup;`) and built later,
+  // so type position is real usage.
   if (!REPORTED_CONTROL_TYPES.has(typeName)) return;
 
-  // Parameter position means a function signature — a validator or helper receiving a
-  // control, not a form declaration. Those are reported as customValidator instead.
+  // A parameter type is a validator/helper receiving a control, reported as customValidator.
   if (node.parent !== undefined && ts.isParameter(node.parent)) return;
 
   out.push({
@@ -1467,7 +1324,7 @@ function materialise(drafts: FindingDraft[], sourceFile: ts.SourceFile, text: st
     const position = sourceFile.getLineAndCharacterOfPosition(draft.node.getStart(sourceFile));
     const line = position.line + 1;
 
-    // One finding per (construct, line): `Validators.required` twice on one line is one fact.
+    // One finding per (construct, line).
     const key = `${draft.construct}@${String(line)}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -1495,11 +1352,8 @@ function materialise(drafts: FindingDraft[], sourceFile: ts.SourceFile, text: st
 /* -------------------------------------------------------------------------- */
 
 /**
- * Scans a `.ts` file or a directory tree for Reactive Forms constructs.
- *
- * Returns a `Result`; an unreadable path is an `err`, never a thrown exception.
- * Files that fail to read individually are skipped rather than failing the run —
- * one permission-denied file should not sink a whole workspace scan.
+ * Scans a file or directory tree for Reactive Forms constructs. Returns a `Result`; an
+ * unreadable path is an `err`, and an individually unreadable file is skipped, never thrown.
  */
 export function findFormCandidates(
   rootPath: string,

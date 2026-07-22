@@ -1,19 +1,8 @@
 /**
- * Reactive Forms TEMPLATE detection — pure.
- *
- * The .ts detector only ever sees half a migration: `[formGroup]`, `formControlName`,
- * `formArrayName`, the error-key reads and the `<select multiple>` dead-ends all live in
- * `.html`, and every one of them was invisible. This closes that half.
- *
- * What it detects is stable, long-documented Reactive Forms template syntax — the attribute
- * names `formControlName` / `[formGroup]` / … exist for nothing else, so matching them makes
- * no claim about Signal Forms. The Signal Forms mapping (what each BECOMES) lives in the
- * recipes, which are doc-grounded; the detector only says "here is a Reactive Forms binding".
- *
- * Parsing is a small quote-aware tag scanner rather than a regex-on-the-whole-file, because
- * Angular templates put `>` inside quoted expressions (`[ngClass]="{'x': a > b}"`) and spread
- * one tag across many lines. It is NOT a full Angular template parser — it does not need the
- * control-flow/interpolation AST to find binding attributes and error-key reads.
+ * Reactive Forms template detection (pure). Finds binding attributes in `.html` that the
+ * `.ts` scan cannot see. The Signal Forms mapping lives in the recipes; this only flags
+ * bindings. Parsing is a quote-aware tag scanner, not a full Angular AST, so it tolerates
+ * `>` inside quoted expressions and multi-line tags.
  */
 import type { Classification, Finding } from './types.js';
 
@@ -28,10 +17,7 @@ interface BindingRule {
   readonly reason: string;
 }
 
-/**
- * The Reactive Forms binding attributes. Keys are the BARE names — `[formGroup]`,
- * `formGroupName`, `[(ngModel)]` and friends are all normalised to these before lookup.
- */
+/** Binding attributes, keyed by bare name (`[formGroup]`, `[(ngModel)]` are normalised first). */
 const BINDINGS: ReadonlyMap<string, BindingRule> = new Map([
   [
     'formControlName',
@@ -102,14 +88,9 @@ const BINDINGS: ReadonlyMap<string, BindingRule> = new Map([
 ]);
 
 /**
- * REACTIVE Forms control bindings — deliberately NOT including `ngModel`.
- *
- * These gate the two migration-specific checks (the `<select multiple>` blocker and the
- * NG8022 native-attribute collision). Both consequences only happen when a control is
- * converted to `[formField]`, which never happens for template-driven `ngModel`. A corpus
- * run caught this: a fully template-driven form (`required minlength="3" [(ngModel)]`) was
- * flagged for NG8022 collisions it can never hit. ngModel is still reported on its own, as
- * an out-of-scope informational finding — it just does not trigger these two.
+ * Reactive control bindings, excluding ngModel. These gate the migration-specific checks
+ * (the select-multiple blocker and the NG8022 collision), which only apply once a control
+ * becomes `[formField]` — never true for template-driven ngModel.
  */
 const REACTIVE_CONTROL_BINDINGS: ReadonlySet<string> = new Set([
   'formControlName',
@@ -168,14 +149,7 @@ function collectBindings(
   }
 }
 
-/**
- * `<select multiple>` bound to a form control — a documented hard blocker.
- *
- * The `[formField]` directive does not support multiple-select, so a control that works in
- * Reactive Forms cannot complete the migration. Better to surface it before starting than to
- * discover it half-converted.
- */
-/** A `<select multiple>` carrying a form control binding — the one true blocker. */
+/** `<select multiple>` with a control binding: unsupported by `[formField]`, so a blocker. */
 function isBlockedSelectMultiple(tag: Tag): boolean {
   if (tag.name.toLowerCase() !== 'select') return false;
   if (!tag.attrs.some((a) => bareAttrName(a.name).toLowerCase() === 'multiple')) return false;
@@ -204,14 +178,7 @@ function collectSelectMultiple(
   });
 }
 
-/**
- * A hand-written `minlength`/`maxlength`/`required`/`min`/`max` attribute on a form-bound
- * element — the NG8022 collision waiting to happen.
- *
- * `[formField]` sets these attributes itself from the matching rule, so the hand-written copy
- * makes a v22 AOT build fail once the element is converted. Only flagged when the SAME element
- * carries a control binding, so a plain `<input maxlength>` elsewhere is left alone.
- */
+/** Native attributes `[formField]` sets itself; a hardcoded copy on a bound element hits NG8022. */
 const MIRRORED_ATTRS: ReadonlySet<string> = new Set([
   'minlength',
   'maxlength',
@@ -231,8 +198,7 @@ function collectNativeAttributeCollision(
 
   for (const attr of tag.attrs) {
     const name = bareAttrName(attr.name).toLowerCase();
-    // A bound property (`[maxlength]`) is dynamic and not the NG8022 case; only a plain
-    // hardcoded attribute collides.
+    // A bound property (`[maxlength]`) is dynamic; only a hardcoded attribute collides.
     if (attr.name.startsWith('[') || attr.name.startsWith('(')) continue;
     if (!MIRRORED_ATTRS.has(name)) continue;
     out.push({
@@ -250,11 +216,8 @@ function collectNativeAttributeCollision(
 }
 
 /**
- * Reads of the RENAMED error keys `minlength` / `maxlength` in template expressions.
- *
- * `control.errors?.['minlength']` and `hasError('minlength')` compile fine after migration
- * and silently never match, because the Signal Forms kind is `minLength`. This is the only
- * template hazard with no visible symptom, so it is worth its own detector.
+ * Reads of the renamed error keys `minlength`/`maxlength`. These match nothing after
+ * migration (the kind is `minLength`) yet still compile, so they fail silently.
  */
 const RENAMED_KEY_READ =
   /(?:errors\s*(?:\?\.)?\s*\[\s*|(?:has|get)Error\s*\(\s*)(['"])(minlength|maxlength)\1/g;

@@ -8,6 +8,12 @@ yarn-error.log*
 /.pnp
 .pnp.js
 
+# secrets and local config
+.env
+.env.*
+*.local
+.claude/
+
 .vscode/*
 # macOS
 .DS_Store
