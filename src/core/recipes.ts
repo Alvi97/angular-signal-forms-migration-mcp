@@ -956,8 +956,10 @@ export class Shipping {
           'from markAsTouched(), so a form that reveals errors on touched() will skip them.',
         'VERSION-SENSITIVE rule signature. On v22 the condition is an options object: ' +
           '`hidden(path.x, { when: ctx => ... })`. On v21 it was a bare callback: ' +
-          '`hidden(path.x, ctx => ...)`. Check your Angular version, or the rule will not ' +
-          'compile.',
+          '`hidden(path.x, ctx => ...)`. v22 still DECLARES the bare-callback overload and ' +
+          'marks it @deprecated, so v21-shaped code compiles with a warning rather than ' +
+          'failing the build — prefer the options object on v22, but do not expect the ' +
+          'compiler to catch the older form for you.',
         'The imperative validator APIs are gone too: `addValidators()` / `setValidators()` ' +
           'become `applyWhen(path, condition, p => { required(p); })`.',
         'THE SCHEMA FUNCTION RUNS ONCE. This is the single most expensive habit to carry ' +
@@ -1137,8 +1139,13 @@ export class Registration {
         'An Observable-returning service still works: use rxResource() from ' +
           "'@angular/core/rxjs-interop' as the validateAsync() factory. Subscriptions are " +
           'cleaned up for you.',
-        '`submit()` waits for pending async validation, so a submit handler does not need to ' +
-          'poll for completion itself.',
+        'A pending async validator does NOT block submission. `submit()` gates on ' +
+          '`shouldRunAction`, which is synchronous: by default it tests `!invalid()`, and ' +
+          'invalid() is false while a request is in flight, so the action runs. Nothing ' +
+          'awaits validation. If the server answer must land first, await it inside the ' +
+          "action, or guard on `pending()` before calling submit(). Passing " +
+          "`ignoreValidators: 'none'` tests `valid()` instead, which REFUSES to submit " +
+          'while pending (calling onInvalid) rather than waiting for it.',
       ],
       sources: [DOCS.asyncOperations, DOCS.validation],
     },
@@ -1341,7 +1348,9 @@ onSubmit(): void {
           'the `formSubmission` recipe — this is the single most common reason setErrors() ' +
           'exists (a rejected sign-in, a duplicate email) and hand-rolling it is a mistake.',
         'VERSION-SENSITIVE rule signature: v22 takes `disabled(path, { when: cb })` where v21 ' +
-          'took a bare callback `disabled(path, cb)`. Check your Angular version.',
+          'took a bare callback `disabled(path, cb)`. v22 still declares the bare-callback ' +
+          'overload as @deprecated, so the older form compiles with a warning — the build ' +
+          'will not catch it for you.',
       ],
       sources: [DOCS.essentials, DOCS.fieldState, DOCS.formLogic, DOCS.migration],
       versionSensitive: true,
@@ -1443,8 +1452,10 @@ export class LoginComponent {
         'submit() returns Promise<boolean> — false when validation failed OR the action ' +
           'returned errors. Concurrent submits are refused: a second call while one is in ' +
           'flight returns false immediately without running the action.',
-        'By default a pending async validator does NOT block submission. If the form has one ' +
-          "whose answer must be in before submitting, pass `ignoreValidators: 'none'`.",
+        'By default a pending async validator does NOT block submission: shouldRunAction ' +
+          "tests `!invalid()`, and pending is neither valid nor invalid. Passing " +
+          "`ignoreValidators: 'none'` switches it to `valid()`, which refuses the submit " +
+          'while a check is in flight and calls onInvalid — it does not wait for the answer.',
         'The FormRoot directive on the <form> element calls submit() for you, sets novalidate ' +
           'and prevents the default navigation. Use it instead of (ngSubmit) plumbing.',
       ],

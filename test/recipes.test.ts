@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { availableConstructs, getSignalFormsRecipe } from '../src/core/recipes.js';
+import { allRecipes, availableConstructs, getSignalFormsRecipe } from '../src/core/recipes.js';
 import { DETECTED_CONSTRUCTS, recipeSchema } from '../src/core/types.js';
 
 // Constructs the detector emits that deliberately have no recipe yet. Currently empty; kept
@@ -295,5 +295,42 @@ describe('nested array and group shapes', () => {
         construct,
       ).toBe(true);
     }
+  });
+});
+
+/**
+ * `submit()` gates on shouldRunAction, which is SYNCHRONOUS: its default branch is
+ * `!untracked(node.invalid)`, and invalid() is false while async validation is pending.
+ * Nothing anywhere awaits validation. The corpus said this correctly for the submission
+ * recipe and the opposite for the async one; an agent following the wrong half ships a form
+ * that submits before the server answers.
+ */
+describe('submission semantics match the shipped implementation', () => {
+  const caveatsOf = (construct: string): string => {
+    const recipe = getSignalFormsRecipe(construct);
+    if (!recipe.found) throw new Error(`missing recipe: ${construct}`);
+    return recipe.caveats.join('\n');
+  };
+
+  it('the async recipe never claims submit() waits for pending validation', () => {
+    expect(caveatsOf('asyncValidator')).not.toMatch(/submit\(\)`? waits for pending/i);
+  });
+
+  it('the async recipe states that a pending validator does not block submission', () => {
+    expect(caveatsOf('asyncValidator')).toMatch(/does NOT block submission/);
+  });
+
+  it('no recipe anywhere claims submit() awaits validation', () => {
+    const everyCaveat = allRecipes().flatMap((r) => r.caveats);
+    expect(everyCaveat.filter((c) => /submit\(\)`? waits for pending/i.test(c))).toHaveLength(0);
+  });
+
+  it('does not describe ignoreValidators as waiting for the answer', () => {
+    // 'none' gates on valid(), which is false while pending — so it REFUSES and calls
+    // onInvalid. It does not wait for the in-flight request to settle.
+    const everyCaveat = allRecipes()
+      .flatMap((r) => r.caveats)
+      .join('\n');
+    expect(everyCaveat).not.toMatch(/answer must be in before submitting/i);
   });
 });
