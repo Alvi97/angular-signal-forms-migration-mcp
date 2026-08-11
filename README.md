@@ -62,14 +62,15 @@ Things this caught that memory gets wrong:
 
 - The binding directive is `[formField]` / `FormField` — **not** `[control]` / `Control`,
   which appeared in pre-release v21 material and is what models tend to reproduce.
-- `required()` treats `false` as missing on **v22** but as present on **v21**. That flips
-  `Validators.requiredTrue` between a one-line rename and a rewrite.
-- `disabled()` / `hidden()` take an options object (`{ when: … }`) on v22, but a bare
-  callback on v21.
+- `disabled()` / `hidden()` gained an options-object form on **v22** (`{ when: … }`) and
+  marked the bare-callback form `@deprecated` rather than removing it — so a v21-shaped rule
+  still compiles, with a warning. Established by diffing the shipped overloads, not the
+  guides.
 
-Recipes whose behaviour differs across releases carry a `VERSION-SENSITIVE` caveat **and**
-a version-independent fallback, because this server does not read your installed Angular
-version and so cannot choose for you.
+Recipes whose behaviour differs across releases carry a `VERSION-SENSITIVE` caveat naming the
+form each version takes. The server reads your project's Angular version where it can (exact
+version from `node_modules`, falling back to the declared range) and resolves those recipes
+against it; when the version cannot be determined, the caveat gives you both.
 
 Recipes carry a `caveats` array. Read it — that is where the sharp edges live.
 

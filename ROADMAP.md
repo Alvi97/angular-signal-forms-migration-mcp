@@ -95,18 +95,22 @@ What the harness proved that documentation alone could not:
 | Item | Target | Note |
 | --- | --- | --- |
 | Classifying arbitrary RxJS outside form streams | post-M4 | Explicitly out of scope. Operator analysis is rooted at `.valueChanges` / `.statusChanges`, so it cannot stray into unrelated observables. A general RxJS-to-signals tool is a different product. |
-| Reading the project's installed Angular version | post-M4 | Would let version-sensitive recipes pick the right variant instead of handing the agent both. |
 
 ### Version sensitivity
 
-Recipes are verified against **Angular v22**. Signal Forms behaviour has already changed
-between v21 and v22 — `required()` treats `false` as missing on v22 but as present on v21,
-which flips `Validators.requiredTrue` between a mechanical rename and a judgment rewrite.
-Recipes affected by this say so in their `caveats` and give a version-independent fallback.
+Recipes are verified against **Angular v22**. Where behaviour differs across releases the
+recipe says so in its `caveats` and names the form each version takes — the worked example is
+`disabled()` / `hidden()`, which gained a `{ when: … }` overload on v22 and kept the bare
+callback as `@deprecated`.
 
-Deferred: the server does not read the user's installed `@angular/core` version, so it
-cannot tailor a recipe to the project automatically. The agent must check. A future
-milestone could take an optional `angularVersion` input.
+Version claims are established by diffing the shipped package, not the documentation. A
+sentence present in one version's guide and absent from the other's is not evidence of a
+behaviour change; see `CLAUDE.md` rule 2 for the claim that was retracted on exactly that
+mistake, and `REVERIFICATION.md` for the procedure.
+
+Shipped in M6a: the server reads the target project's Angular version (exact version from
+`node_modules`, falling back to the declared range) and resolves version-sensitive recipes
+against it, rather than handing the agent both variants.
 
 ## Known limitations (all milestones)
 

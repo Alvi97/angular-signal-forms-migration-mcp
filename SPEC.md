@@ -28,12 +28,17 @@ Before writing ANY recipe or "after" snippet, the building agent MUST:
    silently falls back to older docs when a version has no results. A recipe verified
    against the wrong version is worse than no recipe.
 6. **Flag version-sensitive behaviour.** Where releases disagree, the recipe must say so
-   in its `caveats` and give the version-independent fallback. Known example: `required()`
-   treats `false` as missing on v22 but as present on v21, which flips whether
-   `Validators.requiredTrue` is a mechanical rename or a judgment rewrite.
+   in its `caveats` and name the form each version takes. Known example: `disabled()` took a
+   bare callback on v21; v22 added `disabled(path, { when: cb })` and marked the bare
+   callback `@deprecated` rather than removing it, so v21-shaped code still compiles.
+7. **Establish version claims from shipped source.** Confirm any such claim by diffing the
+   packages (`npm pack @angular/forms@21` / `@22`) — never by comparing the two
+   documentation pages. A sentence present in one version's guide and absent from the
+   other's is NOT evidence of a behaviour change. See `CLAUDE.md` rule 2 for the retraction
+   that established this.
 
-Do NOT invent Signal Forms API shapes from memory. If docs and memory conflict,
-docs win.
+Do NOT invent Signal Forms API shapes from memory. If memory and the docs conflict, the docs
+win; if the docs and the shipped source conflict, the source wins.
 
 ## Incremental shipping rule — NON-NEGOTIABLE
 
