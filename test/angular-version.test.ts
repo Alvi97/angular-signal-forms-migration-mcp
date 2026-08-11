@@ -90,3 +90,33 @@ describe('signalFormsAvailable', () => {
     expect(signalFormsAvailable(major)).toBe(expected);
   });
 });
+
+/**
+ * toAbsolute is path.resolve (infra/node-fs.ts), which emits backslashes on win32, but
+ * parentOf split on '/' only — so every Windows project reported an unknown version and the
+ * v21 blocking gate silently vanished on exactly the platform types.ts ships a `windows`
+ * option for. detect.ts already split on both separators.
+ */
+describe('win32 paths', () => {
+  it('walks up a backslash path to find the manifest', () => {
+    const fs = memoryFs({
+      'C:\\proj\\package.json': pkg('^22.0.0'),
+      'C:\\proj\\libs\\app\\a.component.ts': '',
+    });
+
+    const result = detectAngularVersion('C:\\proj\\libs\\app', fs);
+    expect(result.known).toBe(true);
+    if (result.known) expect(result.major).toBe(22);
+  });
+
+  it('still blocks below v21 on a backslash path', () => {
+    const fs = memoryFs({
+      'C:\\proj\\package.json': pkg('^19.0.0'),
+      'C:\\proj\\src\\a.component.ts': '',
+    });
+
+    const result = detectAngularVersion('C:\\proj\\src', fs);
+    expect(result.known).toBe(true);
+    if (result.known) expect(signalFormsAvailable(result.major)).toBe(false);
+  });
+});

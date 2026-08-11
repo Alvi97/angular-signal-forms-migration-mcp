@@ -56,8 +56,9 @@ function dependencyRange(pkg: Record<string, unknown>, name: string): string | u
   return undefined;
 }
 
+// Both separators: toAbsolute is path.resolve, which emits backslashes on win32.
 function parentOf(path: string): string | undefined {
-  const index = path.lastIndexOf('/');
+  const index = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
   if (index <= 0) return undefined;
   return path.slice(0, index);
 }

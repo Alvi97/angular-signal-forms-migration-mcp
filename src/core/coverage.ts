@@ -26,8 +26,9 @@ export interface CoverageReport {
   readonly specsUsingForms: { readonly spec: string; readonly findings: number }[];
 }
 
+// Both separators: toAbsolute is path.resolve, which emits backslashes on win32.
 function parentOf(path: string): string | undefined {
-  const index = path.lastIndexOf('/');
+  const index = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
   return index <= 0 ? undefined : path.slice(0, index);
 }
 
