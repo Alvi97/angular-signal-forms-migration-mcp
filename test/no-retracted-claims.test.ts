@@ -11,6 +11,15 @@ const TRACKED_MARKDOWN = [
 ] as const;
 
 /**
+ * The one document whose job is to RECORD retractions, so it necessarily quotes the claims
+ * it disproves. Exempting it lets the patterns below be broad enough to catch a claim in any
+ * phrasing — prose, table cell, or bullet — instead of being narrowed until they only match
+ * the exact sentence that was found last time. The separate test at the bottom asserts this
+ * file still carries the evidence, so the exemption cannot be used to quietly drop it.
+ */
+const RETRACTION_RECORD = 'CLAUDE.md';
+
+/**
  * Claims this project asserted, then disproved against shipped source.
  *
  * The v21/v22 `required()` divergence never existed: `isEmpty` is byte-identical in
@@ -20,15 +29,19 @@ const TRACKED_MARKDOWN = [
  * caveats; this guards the documents, which are what reach npm and what govern future
  * sessions.
  *
- * Patterns match the ASSERTION form only. CLAUDE.md quotes the claim in order to retract it
- * ("v22 made `required()` reject `false`; v21 accepted it") — deliberately different wording,
- * which must keep passing. Narrow a pattern rather than exempting a file.
+ * Patterns are deliberately broad. The first version of this guard only matched the prose
+ * sentence and silently passed the same claim written as a table row in REVERIFICATION.md —
+ * a guard narrow enough to miss a rephrasing is barely a guard at all.
  */
 const RETRACTED_CLAIMS: ReadonlyArray<{ readonly name: string; readonly pattern: RegExp }> = [
   {
-    name: 'required() treats false differently on v21 vs v22',
+    name: 'required() treats false differently on v21 vs v22 (prose form)',
     pattern:
       /as (?:missing|present) on \*{0,2}v2[12]\*{0,2},? but as (?:missing|present) on \*{0,2}v2[12]/i,
+  },
+  {
+    name: 'v21 required() accepted/passed false (table or prose form)',
+    pattern: /`?required\(\)`?[^\n]{0,80}\b(?:passes|accepts|accepted)\b/i,
   },
   {
     name: 'requiredTrue is version-sensitive',
@@ -42,12 +55,15 @@ function read(file: string): string {
 }
 
 describe('no tracked document asserts a retracted claim', () => {
-  it.each(TRACKED_MARKDOWN)('%s is free of retracted claims', (file) => {
-    const text = read(file);
-    for (const claim of RETRACTED_CLAIMS) {
-      expect(claim.pattern.test(text), `${file} asserts: ${claim.name}`).toBe(false);
-    }
-  });
+  it.each(TRACKED_MARKDOWN.filter((f) => f !== RETRACTION_RECORD))(
+    '%s is free of retracted claims',
+    (file) => {
+      const text = read(file);
+      for (const claim of RETRACTED_CLAIMS) {
+        expect(claim.pattern.test(text), `${file} asserts: ${claim.name}`).toBe(false);
+      }
+    },
+  );
 
   it('CLAUDE.md still records the source-level evidence for the retraction', () => {
     expect(read('CLAUDE.md')).toMatch(

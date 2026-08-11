@@ -1,17 +1,25 @@
 # REVERIFICATION.md — re-verifying recipes on a new Angular release
 
-Signal Forms is young and its behaviour has **already changed between releases**. This
-project has been burned twice:
+Signal Forms is young and its behaviour has **already changed between releases**. Verified
+divergences, each established by diffing the shipped packages:
 
 | What | v21 | v22 |
 | --- | --- | --- |
-| `required()` on `false` | passes (only `null`/`''` count as empty) | **fails** — `false` is missing, matching `<input type="checkbox" required>` |
-| `disabled()` / `hidden()` signature | bare callback: `disabled(path, cb)` | **options object**: `disabled(path, { when: cb })` |
+| `disabled()` / `hidden()` signature | bare callback: `disabled(path, cb)` | **options object**: `disabled(path, { when: cb })`. The bare callback is still declared and marked `@deprecated`, so v21 code compiles with a warning |
 | Binding directive | `[control]` in pre-release material | `[formField]` |
 | Experimental banner | present | removed |
 
-So: **recipes are not portable across Angular versions, and memory is not a source.**
-This document is the procedure. Follow it exactly; do not shortcut it with recall.
+This table once carried a fourth row asserting a `required()` divergence across those two
+versions. **That row was false**, and it is recorded and refuted in full in `CLAUDE.md`
+rule 2 — deliberately in one place only, so the wording that was wrong is quoted exactly
+once in this repo. The short version: the two shipped packages are byte-identical on that
+code path, only the documentation differed, and the absence of a sentence was read as a
+behaviour change. It survived two audits because every audit compared doc pages to doc
+pages. Step 5b below is what stops the next one.
+
+So: **recipes are not portable across Angular versions, memory is not a source, and neither
+is a diff of two documentation pages.** This document is the procedure. Follow it exactly;
+do not shortcut it with recall.
 
 ---
 
@@ -89,7 +97,9 @@ For a recipe whose behaviour **changed**:
 4. Give a **version-independent fallback** the agent can use when it is unsure of the
    project's version.
 
-`Validators.requiredTrue` is the worked example of all four — copy its shape.
+`hidden` / `disabled` are the worked example of all four — copy their shape. (`requiredTrue`
+used to be cited here, on the strength of a divergence that does not exist;
+`test/provenance.test.ts` now asserts it is NOT flagged version-sensitive.)
 
 If a page is internally inconsistent, follow the **more specific prose**, and say so in a
 caveat. Never silently pick one and move on. (The v22 validation page still has an "empty"
@@ -104,9 +114,38 @@ If something cannot be confirmed at all, ship it with
 `src/core/recipes.ts` has a provenance header block. Update:
 
 - the targeted version and stability wording,
-- the "BEHAVIOUR THAT CHANGED" list, adding any new divergence you found,
+- any new divergence you found, as a `VERSION-SENSITIVE` caveat on the affected recipe,
 
 and add a row to the table at the top of this file.
+
+### 5b. Establish every version claim from shipped source
+
+**Do this before writing any `VERSION-SENSITIVE` caveat, and before adding a row to the
+table above.** This step did not exist when the `required()` row was written, which is why
+the row was wrong and why two audits missed it.
+
+```bash
+npm pack @angular/forms@21 && npm pack @angular/forms@22
+tar -xzf angular-forms-21.*.tgz -C /tmp/f21 --strip-components=1
+tar -xzf angular-forms-22.*.tgz -C /tmp/f22 --strip-components=1
+diff <(grep -A6 'function isEmpty' /tmp/f21/fesm2022/signals.mjs) \
+     <(grep -A6 'function isEmpty' /tmp/f22/fesm2022/signals.mjs)
+```
+
+Substitute the symbol you are checking. Rules:
+
+- A **type-level** claim (does this symbol exist, what arity, what option shape) is settled
+  by `types/*.d.ts`. Note whether an old overload was **removed** or merely marked
+  `@deprecated` — the second still compiles, and saying "it will not compile" is the more
+  dangerous error.
+- A **behavioural** claim is settled by the body in `fesm2022/`. Read the function.
+- A sentence present in one version's guide and absent from the other's is **not evidence of
+  anything**. Absence is not a behaviour. If you cannot show the difference in the shipped
+  bytes, there is no difference to document.
+
+`verify/` currently vendors only v22, so the harness can compile-check v22 claims and nothing
+about v21. Until it vendors both, every v21 claim in this repo is unfalsifiable by its own
+tooling — which is exactly the condition the retracted claim survived in.
 
 ### 6. Verify
 
