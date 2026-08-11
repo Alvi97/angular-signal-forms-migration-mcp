@@ -237,9 +237,11 @@ export function detectInSource(filePath: string, text: string): Finding[] {
   // Without this, a bare `.valueChanges` matches any observable in the codebase.
   if (!importsAngularForms(sourceFile)) return [];
 
+  const aliases = collectFormsAliases(sourceFile);
   const names: BoundNames = {
-    formBuilders: collectFormBuilderNames(sourceFile),
-    forms: collectFormLikeNames(sourceFile),
+    aliases,
+    formBuilders: collectFormBuilderNames(sourceFile, aliases),
+    forms: collectFormLikeNames(sourceFile, aliases),
     mutated: collectMutatedNames(sourceFile),
   };
   const drafts: FindingDraft[] = [];
@@ -262,12 +264,46 @@ function importsAngularForms(sourceFile: ts.SourceFile): boolean {
   );
 }
 
+/**
+ * `import { FormGroup as FG }` -> Map { 'FG' => 'FormGroup' }.
+ *
+ * The gate above only reads the module specifier, so an aliased file IS scanned and then
+ * matches almost nothing: every name table compares against the canonical spelling. Measured
+ * before this existed, an aliased component reported 1 of its 5 constructs — and three of the
+ * four test fixtures reported none at all. That is the worst failure shape available, because
+ * the file still appears in the report, looking nearly migrated.
+ */
+function collectFormsAliases(sourceFile: ts.SourceFile): ReadonlyMap<string, string> {
+  const aliases = new Map<string, string>();
+  for (const statement of sourceFile.statements) {
+    if (!ts.isImportDeclaration(statement)) continue;
+    if (!ts.isStringLiteral(statement.moduleSpecifier)) continue;
+    if (!statement.moduleSpecifier.text.startsWith('@angular/forms')) continue;
+
+    const bindings = statement.importClause?.namedBindings;
+    if (bindings === undefined || !ts.isNamedImports(bindings)) continue;
+
+    for (const element of bindings.elements) {
+      if (element.propertyName === undefined) continue;
+      aliases.set(element.name.text, element.propertyName.text);
+    }
+  }
+  return aliases;
+}
+
+/** The imported name a local identifier stands for. Identity when it is not an alias. */
+function canonical(name: string, aliases: ReadonlyMap<string, string>): string {
+  return aliases.get(name) ?? name;
+}
+
 /* -------------------------------------------------------------------------- */
 /* Pass 1 — bind identifiers to FormBuilder                                    */
 /* -------------------------------------------------------------------------- */
 
 /** Local names bound during pass 1, consumed by pass 2. */
 interface BoundNames {
+  /** Local name -> imported name, so `FG` matches the `FormGroup` tables. */
+  readonly aliases: ReadonlyMap<string, string>;
   /** Names holding a FormBuilder, so `fb.group(...)` matches without a TypeChecker. */
   readonly formBuilders: ReadonlySet<string>;
   /** Names holding a form object, so `form.get('k')` differs from `map.get('k')`. */
@@ -316,13 +352,19 @@ function assignedName(node: ts.Node): string | undefined {
  * Names holding a Reactive Forms object, annotated (`profileForm: FormGroup`) or initialised
  * (`= fb.group({...})`). This is what keeps `x.get('key')` from flagging Map/HttpParams lookups.
  */
-function collectFormLikeNames(sourceFile: ts.SourceFile): ReadonlySet<string> {
+function collectFormLikeNames(
+  sourceFile: ts.SourceFile,
+  aliases: ReadonlyMap<string, string>,
+): ReadonlySet<string> {
   const names = new Set<string>();
 
   const visit = (node: ts.Node): void => {
     if (ts.isPropertyDeclaration(node) || ts.isVariableDeclaration(node) || ts.isParameter(node)) {
       const name = declaredName(node.name);
-      if (name !== undefined && (isControlType(node.type) || holdsFormInitializer(node))) {
+      if (
+        name !== undefined &&
+        (isControlType(node.type, aliases) || holdsFormInitializer(node, aliases))
+      ) {
         names.add(name);
       }
     }
@@ -330,7 +372,7 @@ function collectFormLikeNames(sourceFile: ts.SourceFile): ReadonlySet<string> {
   };
   ts.forEachChild(sourceFile, visit);
 
-  bindFactoryBuiltForms(sourceFile, names);
+  bindFactoryBuiltForms(sourceFile, names, aliases);
   bindControlAliases(sourceFile, names);
   return names;
 }
@@ -340,14 +382,18 @@ function collectFormLikeNames(sourceFile: ts.SourceFile): ReadonlySet<string> {
  * A method counts as a factory only when its body returns a form construction (or another
  * factory), so a `getForm()` returning `this.http.get(...)` is excluded.
  */
-function bindFactoryBuiltForms(sourceFile: ts.SourceFile, names: Set<string>): void {
+function bindFactoryBuiltForms(
+  sourceFile: ts.SourceFile,
+  names: Set<string>,
+  aliases: ReadonlyMap<string, string>,
+): void {
   const factories = new Set<string>();
 
   // Pass 1: find methods whose return expression is a form construction.
   const collectFactories = (node: ts.Node): void => {
     if (ts.isMethodDeclaration(node)) {
       const name = declaredName(node.name);
-      if (name !== undefined && methodReturnsForm(node, factories)) factories.add(name);
+      if (name !== undefined && methodReturnsForm(node, factories, aliases)) factories.add(name);
     }
     ts.forEachChild(node, collectFactories);
   };
@@ -374,14 +420,18 @@ function bindFactoryBuiltForms(sourceFile: ts.SourceFile, names: Set<string>): v
 }
 
 /** True when a method's body contains a `return <form construction>`. */
-function methodReturnsForm(node: ts.MethodDeclaration, factories: ReadonlySet<string>): boolean {
+function methodReturnsForm(
+  node: ts.MethodDeclaration,
+  factories: ReadonlySet<string>,
+  aliases: ReadonlyMap<string, string>,
+): boolean {
   let found = false;
   const visit = (child: ts.Node): void => {
     if (found) return;
     // Nested functions have their own returns, not this method's.
     if (ts.isFunctionDeclaration(child) || ts.isFunctionExpression(child)) return;
     if (ts.isReturnStatement(child) && child.expression !== undefined) {
-      if (isFormConstruction(child.expression, factories)) found = true;
+      if (isFormConstruction(child.expression, factories, aliases)) found = true;
     }
     ts.forEachChild(child, visit);
   };
@@ -404,10 +454,14 @@ function callsFactory(init: ts.Node | undefined, factories: ReadonlySet<string>)
 }
 
 /** `new FormGroup(...)`, `fb.group(...)`, or a call to a known form-factory method. */
-function isFormConstruction(expr: ts.Expression, factories: ReadonlySet<string>): boolean {
+function isFormConstruction(
+  expr: ts.Expression,
+  factories: ReadonlySet<string>,
+  aliases: ReadonlyMap<string, string>,
+): boolean {
   const node = unwrapReceiver(expr);
   if (ts.isNewExpression(node) && ts.isIdentifier(node.expression)) {
-    return CONTROL_TYPES.has(node.expression.text);
+    return CONTROL_TYPES.has(canonical(node.expression.text, aliases));
   }
   if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
     const method = declaredName(node.expression.name);
@@ -475,13 +529,18 @@ function aliasedExpression(node: ts.Node): ts.Expression | undefined {
   return undefined;
 }
 
-function isControlType(type: ts.TypeNode | undefined): boolean {
+function isControlType(
+  type: ts.TypeNode | undefined,
+  aliases: ReadonlyMap<string, string>,
+): boolean {
   if (type === undefined || !ts.isTypeReferenceNode(type)) return false;
-  return ts.isIdentifier(type.typeName) && CONTROL_TYPES.has(type.typeName.text);
+  return (
+    ts.isIdentifier(type.typeName) && CONTROL_TYPES.has(canonical(type.typeName.text, aliases))
+  );
 }
 
 /** True for `= new FormGroup(...)`, `= fb.group({...})` and their array/control siblings. */
-function holdsFormInitializer(node: ts.Node): boolean {
+function holdsFormInitializer(node: ts.Node, aliases: ReadonlyMap<string, string>): boolean {
   const initializer =
     (ts.isPropertyDeclaration(node) || ts.isVariableDeclaration(node)) && node.initializer
       ? node.initializer
@@ -489,7 +548,7 @@ function holdsFormInitializer(node: ts.Node): boolean {
   if (initializer === undefined) return false;
 
   if (ts.isNewExpression(initializer) && ts.isIdentifier(initializer.expression)) {
-    return CONTROL_TYPES.has(initializer.expression.text);
+    return CONTROL_TYPES.has(canonical(initializer.expression.text, aliases));
   }
   if (ts.isCallExpression(initializer) && ts.isPropertyAccessExpression(initializer.expression)) {
     const method = declaredName(initializer.expression.name);
@@ -498,13 +557,19 @@ function holdsFormInitializer(node: ts.Node): boolean {
   return false;
 }
 
-function collectFormBuilderNames(sourceFile: ts.SourceFile): ReadonlySet<string> {
+function collectFormBuilderNames(
+  sourceFile: ts.SourceFile,
+  aliases: ReadonlyMap<string, string>,
+): ReadonlySet<string> {
   const names = new Set<string>();
 
   const visit = (node: ts.Node): void => {
     if (ts.isParameter(node) || ts.isPropertyDeclaration(node) || ts.isVariableDeclaration(node)) {
       const name = declaredName(node.name);
-      if (name !== undefined && (isFormBuilderType(node.type) || isInjectFormBuilder(node))) {
+      if (
+        name !== undefined &&
+        (isFormBuilderType(node.type, aliases) || isInjectFormBuilder(node, aliases))
+      ) {
         names.add(name);
       }
     }
@@ -520,14 +585,18 @@ function declaredName(name: ts.Node): string | undefined {
   return undefined;
 }
 
-function isFormBuilderType(type: ts.TypeNode | undefined): boolean {
+function isFormBuilderType(
+  type: ts.TypeNode | undefined,
+  aliases: ReadonlyMap<string, string>,
+): boolean {
   if (type === undefined || !ts.isTypeReferenceNode(type)) return false;
   const { typeName } = type;
-  // Matches `FormBuilder` and the typed variant `NonNullableFormBuilder`.
-  return ts.isIdentifier(typeName) && typeName.text.endsWith('FormBuilder');
+  // Matches `FormBuilder` and the typed variant `NonNullableFormBuilder`. Resolve the alias
+  // FIRST: `FB` does not end with `FormBuilder`, which is what hid `fb.group()` entirely.
+  return ts.isIdentifier(typeName) && canonical(typeName.text, aliases).endsWith('FormBuilder');
 }
 
-function isInjectFormBuilder(node: ts.Node): boolean {
+function isInjectFormBuilder(node: ts.Node, aliases: ReadonlyMap<string, string>): boolean {
   const initializer =
     (ts.isPropertyDeclaration(node) || ts.isVariableDeclaration(node)) && node.initializer
       ? node.initializer
@@ -540,7 +609,7 @@ function isInjectFormBuilder(node: ts.Node): boolean {
   return (
     firstArgument !== undefined &&
     ts.isIdentifier(firstArgument) &&
-    firstArgument.text.endsWith('FormBuilder')
+    canonical(firstArgument.text, aliases).endsWith('FormBuilder')
   );
 }
 
@@ -554,7 +623,7 @@ function collectFromNode(node: ts.Node, names: BoundNames, out: FindingDraft[]):
     return;
   }
   if (ts.isCallExpression(node)) {
-    collectFromFormBuilderCall(node, names.formBuilders, out);
+    collectFromFormBuilderCall(node, names.formBuilders, names.aliases, out);
     collectFromControlGet(node, names.forms, out);
     collectFromShapeMutation(node, names.forms, out);
     collectFromControlApi(node, names.forms, out);
@@ -562,27 +631,27 @@ function collectFromNode(node: ts.Node, names: BoundNames, out: FindingDraft[]):
   }
   if (ts.isPropertyAssignment(node)) {
     collectFromAsyncValidatorsOption(node, out);
-    collectFromDeadValidatorOption(node, out);
+    collectFromDeadValidatorOption(node, names.aliases, out);
     return;
   }
   if (ts.isPropertyAccessExpression(node)) {
-    collectFromPropertyAccess(node, out);
+    collectFromPropertyAccess(node, names.aliases, out);
     collectFromStateRead(node, names.forms, out);
     return;
   }
   if (ts.isTypeReferenceNode(node)) {
-    collectFromTypeReference(node, out);
+    collectFromTypeReference(node, names.aliases, out);
     return;
   }
   if (ts.isClassDeclaration(node)) {
-    collectControlValueAccessor(node, out);
+    collectControlValueAccessor(node, names.aliases, out);
     return;
   }
   if (ts.isFunctionLike(node)) {
-    collectCustomValidatorDeclaration(node, out);
+    collectCustomValidatorDeclaration(node, names.aliases, out);
   }
   if (ts.isParameter(node)) {
-    collectFormBuilderInjection(node, out);
+    collectFormBuilderInjection(node, names.aliases, out);
   }
 }
 
@@ -591,13 +660,18 @@ function collectFromNode(node: ts.Node, names: BoundNames, out: FindingDraft[]):
  * v22). Reported once per class, since a CVA is recognisable both by `implements` and by the
  * `NG_VALUE_ACCESSOR` provider and real components use both.
  */
-function collectControlValueAccessor(node: ts.ClassDeclaration, out: FindingDraft[]): void {
+function collectControlValueAccessor(
+  node: ts.ClassDeclaration,
+  aliases: ReadonlyMap<string, string>,
+  out: FindingDraft[],
+): void {
   const implementsCva = (node.heritageClauses ?? []).some(
     (clause) =>
       clause.token === ts.SyntaxKind.ImplementsKeyword &&
       clause.types.some(
         (type) =>
-          ts.isIdentifier(type.expression) && type.expression.text === 'ControlValueAccessor',
+          ts.isIdentifier(type.expression) &&
+          canonical(type.expression.text, aliases) === 'ControlValueAccessor',
       ),
   );
 
@@ -870,12 +944,16 @@ function collectFromShapeMutation(
  * the legacy key and is excluded. Verified against @angular/forms@22 source (pickValidators /
  * FormBuilder.group).
  */
-function collectFromDeadValidatorOption(node: ts.PropertyAssignment, out: FindingDraft[]): void {
+function collectFromDeadValidatorOption(
+  node: ts.PropertyAssignment,
+  aliases: ReadonlyMap<string, string>,
+  out: FindingDraft[],
+): void {
   const key = declaredName(node.name);
   if (key !== 'validator' && key !== 'asyncValidator') return;
 
   // Only `new FormX(...)`, never fb.group(...).
-  if (!isConstructorOptionsObject(node.parent)) return;
+  if (!isConstructorOptionsObject(node.parent, aliases)) return;
 
   out.push({
     construct: 'deadValidatorOption',
@@ -893,13 +971,16 @@ function collectFromDeadValidatorOption(node: ts.PropertyAssignment, out: Findin
 }
 
 /** True when this object literal is an argument to `new FormGroup/FormControl/FormArray`. */
-function isConstructorOptionsObject(node: ts.Node | undefined): boolean {
+function isConstructorOptionsObject(
+  node: ts.Node | undefined,
+  aliases: ReadonlyMap<string, string>,
+): boolean {
   if (node === undefined || !ts.isObjectLiteralExpression(node)) return false;
 
   const parent: ts.Node | undefined = node.parent;
   if (parent === undefined) return false;
   if (!ts.isNewExpression(parent) || !ts.isIdentifier(parent.expression)) return false;
-  return CONTROL_TYPES.has(parent.expression.text);
+  return CONTROL_TYPES.has(canonical(parent.expression.text, aliases));
 }
 
 /** `new FormControl('', { asyncValidators: [...] })` and the fb.group equivalent. */
@@ -922,13 +1003,16 @@ function collectFromAsyncValidatorsOption(node: ts.PropertyAssignment, out: Find
  */
 function collectCustomValidatorDeclaration(
   node: ts.SignatureDeclaration,
+  aliases: ReadonlyMap<string, string>,
   out: FindingDraft[],
 ): void {
   // The factory `static x(): ValidatorFn { return (c) => ... }` is already reported at the
   // annotation; skip the inner arrow.
-  if (hasValidatorAncestor(node)) return;
+  if (hasValidatorAncestor(node, aliases)) return;
 
-  const parameterTypes = node.parameters.map((parameter) => typeReferenceName(parameter.type));
+  const parameterTypes = node.parameters.map((parameter) =>
+    typeReferenceName(parameter.type, aliases),
+  );
   const takesAbstractControl = parameterTypes.includes('AbstractControl');
   const takesControl = parameterTypes.some((name) => name !== undefined && CONTROL_TYPES.has(name));
 
@@ -950,12 +1034,13 @@ function collectCustomValidatorDeclaration(
   });
 }
 
-function hasValidatorAncestor(node: ts.Node): boolean {
+function hasValidatorAncestor(node: ts.Node, aliases: ReadonlyMap<string, string>): boolean {
   for (let parent = node.parent; parent !== undefined; parent = parent.parent) {
     if (!ts.isFunctionLike(parent)) continue;
-    const returnType = typeReferenceName(parent.type);
+    const returnType = typeReferenceName(parent.type, aliases);
     if (returnType === 'ValidatorFn' || returnType === 'AsyncValidatorFn') return true;
-    if (parent.parameters.some((p) => typeReferenceName(p.type) === 'AbstractControl')) return true;
+    if (parent.parameters.some((p) => typeReferenceName(p.type, aliases) === 'AbstractControl'))
+      return true;
   }
   return false;
 }
@@ -968,9 +1053,13 @@ function functionLikeName(node: ts.SignatureDeclaration): string | undefined {
   return undefined;
 }
 
-function typeReferenceName(type: ts.TypeNode | undefined): string | undefined {
+/** The IMPORTED name a type annotation refers to, so `x: FG` reads as `FormGroup`. */
+function typeReferenceName(
+  type: ts.TypeNode | undefined,
+  aliases: ReadonlyMap<string, string>,
+): string | undefined {
   if (type === undefined || !ts.isTypeReferenceNode(type)) return undefined;
-  return ts.isIdentifier(type.typeName) ? type.typeName.text : undefined;
+  return ts.isIdentifier(type.typeName) ? canonical(type.typeName.text, aliases) : undefined;
 }
 
 function collectFromNewExpression(
@@ -979,7 +1068,8 @@ function collectFromNewExpression(
   out: FindingDraft[],
 ): void {
   if (!ts.isIdentifier(node.expression)) return;
-  const constructName = node.expression.text;
+  // Canonical, so `new FG(...)` takes the FormGroup branch and is REPORTED as FormGroup.
+  const constructName = canonical(node.expression.text, names.aliases);
 
   if (constructName === 'FormArray') {
     const owner = assignedName(node);
@@ -1016,7 +1106,7 @@ function collectFromNewExpression(
   }
 
   if (constructName === 'FormGroup') {
-    const nested = containsNestedCollection(node);
+    const nested = containsNestedCollection(node, names.aliases);
     out.push({
       construct: 'FormGroup',
       node,
@@ -1030,12 +1120,16 @@ function collectFromNewExpression(
 }
 
 /** True when a FormGroup nests a FormArray or child group, so it can't be "mechanical". */
-function containsNestedCollection(node: ts.NewExpression): boolean {
+function containsNestedCollection(
+  node: ts.NewExpression,
+  aliases: ReadonlyMap<string, string>,
+): boolean {
   let found = false;
   const visit = (child: ts.Node): void => {
     if (found) return;
     if (ts.isNewExpression(child) && ts.isIdentifier(child.expression)) {
-      if (child.expression.text === 'FormArray' || child.expression.text === 'FormGroup') {
+      const nested = canonical(child.expression.text, aliases);
+      if (nested === 'FormArray' || nested === 'FormGroup') {
         if (child !== node) found = true;
       }
     }
@@ -1052,6 +1146,7 @@ function containsNestedCollection(node: ts.NewExpression): boolean {
 function collectFromFormBuilderCall(
   node: ts.CallExpression,
   formBuilderNames: ReadonlySet<string>,
+  aliases: ReadonlyMap<string, string>,
   out: FindingDraft[],
 ): void {
   const callee = node.expression;
@@ -1086,7 +1181,7 @@ function collectFromFormBuilderCall(
     return;
   }
 
-  const nested = containsNestedFormBuilderCollection(node);
+  const nested = containsNestedFormBuilderCollection(node, aliases);
   out.push({
     construct: 'FormBuilder.group',
     node,
@@ -1098,7 +1193,10 @@ function collectFromFormBuilderCall(
   });
 }
 
-function containsNestedFormBuilderCollection(node: ts.CallExpression): boolean {
+function containsNestedFormBuilderCollection(
+  node: ts.CallExpression,
+  aliases: ReadonlyMap<string, string>,
+): boolean {
   let found = false;
   const visit = (child: ts.Node): void => {
     if (found) return;
@@ -1107,7 +1205,8 @@ function containsNestedFormBuilderCollection(node: ts.CallExpression): boolean {
       if (method === 'array' || (method === 'group' && child !== node)) found = true;
     }
     if (ts.isNewExpression(child) && ts.isIdentifier(child.expression)) {
-      if (child.expression.text === 'FormArray' || child.expression.text === 'FormGroup') {
+      const nested = canonical(child.expression.text, aliases);
+      if (nested === 'FormArray' || nested === 'FormGroup') {
         found = true;
       }
     }
@@ -1245,12 +1344,19 @@ function unwrapReceiver(node: ts.Node): ts.Node {
   return current;
 }
 
-function collectFromPropertyAccess(node: ts.PropertyAccessExpression, out: FindingDraft[]): void {
+function collectFromPropertyAccess(
+  node: ts.PropertyAccessExpression,
+  aliases: ReadonlyMap<string, string>,
+  out: FindingDraft[],
+): void {
   const property = declaredName(node.name);
   if (property === undefined) return;
 
   // Validators.<name>
-  if (ts.isIdentifier(node.expression) && node.expression.text === 'Validators') {
+  if (
+    ts.isIdentifier(node.expression) &&
+    canonical(node.expression.text, aliases) === 'Validators'
+  ) {
     const mechanical = MECHANICAL_VALIDATORS.has(property);
     out.push({
       construct: `Validators.${property}`,
@@ -1332,9 +1438,14 @@ function pipedOperators(node: ts.PropertyAccessExpression): string[] {
   return names;
 }
 
-function collectFromTypeReference(node: ts.TypeReferenceNode, out: FindingDraft[]): void {
+function collectFromTypeReference(
+  node: ts.TypeReferenceNode,
+  aliases: ReadonlyMap<string, string>,
+  out: FindingDraft[],
+): void {
   if (!ts.isIdentifier(node.typeName)) return;
-  const typeName = node.typeName.text;
+  // Canonical, so `form: FG` is reported as FormGroup and resolves to the FormGroup recipe.
+  const typeName = canonical(node.typeName.text, aliases);
 
   if (typeName === 'AsyncValidatorFn') {
     out.push({
@@ -1378,8 +1489,12 @@ function collectFromTypeReference(node: ts.TypeReferenceNode, out: FindingDraft[
   });
 }
 
-function collectFormBuilderInjection(node: ts.ParameterDeclaration, out: FindingDraft[]): void {
-  if (!isFormBuilderType(node.type)) return;
+function collectFormBuilderInjection(
+  node: ts.ParameterDeclaration,
+  aliases: ReadonlyMap<string, string>,
+  out: FindingDraft[],
+): void {
+  if (!isFormBuilderType(node.type, aliases)) return;
   out.push({
     construct: 'FormBuilder',
     node,
