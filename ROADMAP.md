@@ -21,11 +21,11 @@ option). Recipes: `FormArray`, `dynamicControls`, `asyncValidator`. New tool
 `NG_VALUE_ACCESSOR` provider, reported once per class) and grades form streams by the RxJS
 operators in their `.pipe()` chain:
 
-| Tier | Operators | Construct | Answer |
-| --- | --- | --- | --- |
-| trivial | none / bare `subscribe` | `valueChanges` | `computed()`, or `effect()` for real side effects |
-| moderate | `map`, `filter`, `debounceTime`, `distinctUntilChanged`, `startWith`, `tap`, … | `valueChangesPipeline` | `computed()` + the `debounce()` schema rule |
-| hard | `switchMap`, `mergeMap`, `combineLatest`, `withLatestFrom`, `forkJoin`, … | `valueChangesAsyncPipeline` | **no direct equivalent** — pick between async validation rules, `rxResource`, or keeping RxJS behind `toObservable`/`toSignal` |
+| Tier     | Operators                                                                      | Construct                   | Answer                                                                                                                         |
+| -------- | ------------------------------------------------------------------------------ | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| trivial  | none / bare `subscribe`                                                        | `valueChanges`              | `computed()`, or `effect()` for real side effects                                                                              |
+| moderate | `map`, `filter`, `debounceTime`, `distinctUntilChanged`, `startWith`, `tap`, … | `valueChangesPipeline`      | `computed()` + the `debounce()` schema rule                                                                                    |
+| hard     | `switchMap`, `mergeMap`, `combineLatest`, `withLatestFrom`, `forkJoin`, …      | `valueChangesAsyncPipeline` | **no direct equivalent** — pick between async validation rules, `rxResource`, or keeping RxJS behind `toObservable`/`toSignal` |
 
 The hardest operator present decides the tier. Recipes: `ControlValueAccessor`,
 `valueChanges`, `valueChangesPipeline`, `valueChangesAsyncPipeline`.
@@ -48,27 +48,27 @@ materially understated the work.
 
 Two access modes are split rather than lumped, mirroring the `.get()` treatment:
 
-| Usage | Class | Why |
-| --- | --- | --- |
-| `form.controls.email`, `form.controls['email']` | mechanical | becomes `f.email` |
-| `Object.keys(form.controls)` | judgment | the field tree is a typed object, not a string-keyed map |
-| `.setValue` / `.patchValue` / `.reset` / `.getRawValue` | mechanical | value writes go through the model signal |
-| `markAs*` / `setErrors` / `enable` / `setValidators` | judgment | state is derived from rules; no imperative equivalent |
+| Usage                                                   | Class      | Why                                                      |
+| ------------------------------------------------------- | ---------- | -------------------------------------------------------- |
+| `form.controls.email`, `form.controls['email']`         | mechanical | becomes `f.email`                                        |
+| `Object.keys(form.controls)`                            | judgment   | the field tree is a typed object, not a string-keyed map |
+| `.setValue` / `.patchValue` / `.reset` / `.getRawValue` | mechanical | value writes go through the model signal                 |
+| `markAs*` / `setErrors` / `enable` / `setValidators`    | judgment   | state is derived from rules; no imperative equivalent    |
 
 **M6a** — correctness hardening: version gate + ordering roles. The server now reads the
 TARGET project's Angular version (exact installed version from `node_modules`, falling back
 to the declared range) and opens the report with a **blocking prerequisite** when it is
 below v21, because `@angular/forms/signals` does not exist there. Version-sensitive recipes
 resolve against the detected version instead of handing the agent both variants — including
-the awkward case where the project is on *neither* diverging version.
+the awkward case where the project is on _neither_ diverging version.
 
 Files are also classified by role, fixing a real ordering defect:
 
-| Role | Meaning | Ordering |
-| --- | --- | --- |
-| `owner` | constructs a form (`new FormX`, `fb.group/array/control`) | normal |
-| `validators` | owns no form but defines reusable validators | normal, flagged as a shared primitive to decide early |
-| `reference` | only annotations/casts/state reads on another file's form | sorted **last** — cannot be migrated alone |
+| Role         | Meaning                                                   | Ordering                                              |
+| ------------ | --------------------------------------------------------- | ----------------------------------------------------- |
+| `owner`      | constructs a form (`new FormX`, `fb.group/array/control`) | normal                                                |
+| `validators` | owns no form but defines reusable validators              | normal, flagged as a shared primitive to decide early |
+| `reference`  | only annotations/casts/state reads on another file's form | sorted **last** — cannot be migrated alone            |
 
 The `reference` case is the `roles-section-formio` defect: one finding, ranked first, and
 un-migratable in isolation. The `validators` case was a flaw in the first fix — burying a
@@ -92,8 +92,8 @@ What the harness proved that documentation alone could not:
 
 ### Still deferred
 
-| Item | Target | Note |
-| --- | --- | --- |
+| Item                                            | Target  | Note                                                                                                                                                                                              |
+| ----------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Classifying arbitrary RxJS outside form streams | post-M4 | Explicitly out of scope. Operator analysis is rooted at `.valueChanges` / `.statusChanges`, so it cannot stray into unrelated observables. A general RxJS-to-signals tool is a different product. |
 
 ### Version sensitivity
@@ -134,6 +134,7 @@ against it, rather than handing the agent both variants.
   and a form arriving through an **unannotated intermediate defined in another file**
   (`getForm().get('email')`). Namespace imports (`import * as ng`) and local re-binding
   (`const FG = FormGroup`) remain out of scope by choice, not by necessity.
+
 - **`.get()` detection depends on name binding.** `form.get('k')` is only reported when the
   receiver was bound to a form in pass 1 — annotated `: FormGroup` / `: AbstractControl`,
   initialised from `new FormGroup(...)` / `fb.group(...)`, or built by a factory method that
@@ -147,7 +148,7 @@ against it, rather than handing the agent both variants.
   shadow. The other cost is that a form arriving through an unannotated intermediate — say
   `getForm().get('email')` — is missed.
 - **Forms stored on a domain-model object are missed (cross-object access).** When a
-  `FormGroup` lives as a property of a *data model* rather than the component —
+  `FormGroup` lives as a property of a _data model_ rather than the component —
   `this.selectedSection.SectionValidator.controls[i].updateValueAndValidity()` — the receiver
   chain (`this.selectedSection.SectionValidator`) cannot be proven to be a form without
   cross-file type resolution, so its usages are invisible. The SAME-object form of this
@@ -171,15 +172,15 @@ all verified against the v22 docs. It is a token scan, not an Angular AST — it
 sites and leaves structure to the agent, so the AOT build stays the real check. Templates
 sort as "reference only" and migrate with their component.
 
-**M11 — coverage: the three silent misses (done).** Each of these let a file be *scanned* and
+**M11 — coverage: the three silent misses (done).** Each of these let a file be _scanned_ and
 then under-reported, which is worse than skipping it: the file appears in the report looking
 nearly migrated.
 
-| Gap | Before | Now |
-| --- | --- | --- |
-| Named import aliases | `import { FormBuilder as FB, FormGroup as FG }` reported **1 of 5** constructs; three of four test fixtures reported **none** | alias map from the import clause, applied at 15 sites in two matching styles |
-| Inline `template:` | zero `Template.*` findings, ever | scanned with the M7 token scanner, lines offset to the `.ts` file |
-| Destructured controls | destructuring site reported, every use after it missed | bound after the form names are known |
+| Gap                   | Before                                                                                                                        | Now                                                                          |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Named import aliases  | `import { FormBuilder as FB, FormGroup as FG }` reported **1 of 5** constructs; three of four test fixtures reported **none** | alias map from the import clause, applied at 15 sites in two matching styles |
+| Inline `template:`    | zero `Template.*` findings, ever                                                                                              | scanned with the M7 token scanner, lines offset to the `.ts` file            |
+| Destructured controls | destructuring site reported, every use after it missed                                                                        | bound after the form names are known                                         |
 
 Alias coverage is kept complete by a **differential test** rather than by review: the same
 component, aliased and not, must report identically. Hand-enumeration of the 15 sites
@@ -191,7 +192,7 @@ Templates with `${substitutions}` are skipped deliberately: their text is not th
 compiler sees, so any line number after the substitution would be a guess, and a wrong line is
 worse than a missing one. An inline template does not demote its file to "reference only" —
 an external `.html` sorts last because it cannot be migrated without its component, but an
-inline template *is* in its component.
+inline template _is_ in its component.
 
 `formStateRead` gained the **NG01902 "Orphan field"** caveat: destructuring the field tree
 typechecks (subfields are real properties on `FieldTree`), so a type-level check calls it safe,

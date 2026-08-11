@@ -345,16 +345,24 @@ export function createServer(): McpServer {
       const peers = findPeerBlockers(declared, to, (name) => readInstalledPeer(manifestDir, name));
       const isNxWorkspace = declared.some((n) => n === 'nx' || n.startsWith('@nx/'));
 
+      // material and ngUpgrade can be read off package.json; `windows` cannot — nothing in a
+      // manifest says what OS anyone is on. Anything neither answered nor inferred was never
+      // asked, and the report must not attribute it to the user.
       const inferredOptions = [
         ...(material === undefined ? ['material'] : []),
         ...(ngUpgrade === undefined ? ['ngUpgrade'] : []),
+      ];
+      const answeredOptions = [
+        ...(material === undefined ? [] : ['material']),
+        ...(ngUpgrade === undefined ? [] : ['ngUpgrade']),
+        ...(windows === undefined ? [] : ['windows']),
       ];
       const markdown = buildUpgradeReport(
         plan,
         to >= MIN_SIGNAL_FORMS_VERSION,
         detectCompanions(manifest, readBuildConfigs(manifestDir)),
         inferredOptions,
-        { isNxWorkspace, peers },
+        { isNxWorkspace, peers, answered: answeredOptions },
       );
       return {
         content: [{ type: 'text', text: markdown }],

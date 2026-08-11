@@ -3,11 +3,11 @@
 Signal Forms is young and its behaviour has **already changed between releases**. Verified
 divergences, each established by diffing the shipped packages:
 
-| What | v21 | v22 |
-| --- | --- | --- |
+| What                                | v21                                 | v22                                                                                                                                                   |
+| ----------------------------------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `disabled()` / `hidden()` signature | bare callback: `disabled(path, cb)` | **options object**: `disabled(path, { when: cb })`. The bare callback is still declared and marked `@deprecated`, so v21 code compiles with a warning |
-| Binding directive | `[control]` in pre-release material | `[formField]` |
-| Experimental banner | present | removed |
+| Binding directive                   | `[control]` in pre-release material | `[formField]`                                                                                                                                         |
+| Experimental banner                 | present                             | removed                                                                                                                                               |
 
 This table once carried a fourth row asserting a `required()` divergence across those two
 versions. **That row was false**, and it is recorded and refuted in full in `CLAUDE.md`

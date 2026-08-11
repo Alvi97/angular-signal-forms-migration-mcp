@@ -80,11 +80,11 @@ Not every Reactive Forms pattern has a Signal Forms equivalent, and a migration 
 pretends otherwise is worse than none. Form streams are graded by the RxJS operators in
 their `.pipe()` chain:
 
-| Tier | Operators | Answer |
-| --- | --- | --- |
-| trivial | none / bare `subscribe` | `computed()`, or `effect()` for a real side effect |
-| moderate | `map`, `filter`, `debounceTime`, `distinctUntilChanged`, … | `computed()` + the `debounce()` schema rule |
-| hard | `switchMap`, `combineLatest`, `withLatestFrom`, `forkJoin`, … | **no direct equivalent** |
+| Tier     | Operators                                                     | Answer                                             |
+| -------- | ------------------------------------------------------------- | -------------------------------------------------- |
+| trivial  | none / bare `subscribe`                                       | `computed()`, or `effect()` for a real side effect |
+| moderate | `map`, `filter`, `debounceTime`, `distinctUntilChanged`, …    | `computed()` + the `debounce()` schema rule        |
+| hard     | `switchMap`, `combineLatest`, `withLatestFrom`, `forkJoin`, … | **no direct equivalent**                           |
 
 For the hard tier the recipe says so outright and offers three real strategies —
 async validation rules, `rxResource`, or keeping RxJS behind `toObservable`/`toSignal` —
@@ -96,8 +96,8 @@ of implying an API that would not compile.
 
 ## Composes with the official Angular MCP server
 
-This server is deliberately narrow: it knows about *migration*. Run it alongside the
-official `@angular/cli` MCP server, which knows about *Angular*. Your agent can pull
+This server is deliberately narrow: it knows about _migration_. Run it alongside the
+official `@angular/cli` MCP server, which knows about _Angular_. Your agent can pull
 findings and recipes from here, then use `search_documentation` / `find_examples` there
 to confirm anything current or project-specific before it edits.
 

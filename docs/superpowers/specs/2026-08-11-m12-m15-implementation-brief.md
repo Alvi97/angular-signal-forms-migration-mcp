@@ -94,9 +94,9 @@ function judgmentSection(groups: readonly JudgmentGroup[], root: string): string
 Call site (`report.ts:429-441`, heading lines 430-433 go away with it):
 
 ```ts
-  if (complexity.judgmentCount > 0) {
-    lines.push(...judgmentSection(groupJudgments(byPath, complexity.suggestedOrder), root));
-  }
+if (complexity.judgmentCount > 0) {
+  lines.push(...judgmentSection(groupJudgments(byPath, complexity.suggestedOrder), root));
+}
 ```
 
 The bug section (`report.ts:281-285`) has the same shape and is left alone: 0 occurrences of `deadValidatorOption` in the fixture, so it has not earned the complexity.
@@ -191,13 +191,16 @@ export function incompleteNotice(page: PageInfo, filtered: boolean): string | nu
 
 `jsonResult` (`:75-80`) emits the identical payload twice; `get_migration_report` (`:260-265`) and `get_angular_upgrade_plan` (`:331-334`) open-code the same thing by hand. Measured on real stdio frames: `get_migration_report` at 776,069 bytes = 385,302 text + 387,995 structured. Exactly 2×.
 
-Direction is forced by the spec, and it goes the way that keeps `content`: the 2025-06-18 tools spec says *"a tool that returns structured content SHOULD also return the serialized JSON in a TextContent block."* There is no reciprocal SHOULD protecting `structuredContent`. So emitting `content` only, with no `outputSchema`, is fully conformant; emitting `structuredContent` with `content: []` violates that SHOULD. Nothing in the SDK forces both — `content` is `z.array(ContentBlockSchema).default([])`, commented "this field is always present, but it may be empty" (`node_modules/@modelcontextprotocol/sdk/dist/esm/types.js:1291-1296`), and `validateToolOutput` demands `structuredContent` **only** when an `outputSchema` is set (`dist/esm/server/mcp.js:189-197`).
+Direction is forced by the spec, and it goes the way that keeps `content`: the 2025-06-18 tools spec says _"a tool that returns structured content SHOULD also return the serialized JSON in a TextContent block."_ There is no reciprocal SHOULD protecting `structuredContent`. So emitting `content` only, with no `outputSchema`, is fully conformant; emitting `structuredContent` with `content: []` violates that SHOULD. Nothing in the SDK forces both — `content` is `z.array(ContentBlockSchema).default([])`, commented "this field is always present, but it may be empty" (`node_modules/@modelcontextprotocol/sdk/dist/esm/types.js:1291-1296`), and `validateToolOutput` demands `structuredContent` **only** when an `outputSchema` is set (`dist/esm/server/mcp.js:189-197`).
 
 - `get_migration_report` / `get_angular_upgrade_plan`: delete `outputSchema:` (`server.ts:242`, `:280`), return `{ content: [{ type: 'text', text: markdown }] }` only. Delete `getMigrationReportOutputSchema` (`types.ts:310-314`), `getAngularUpgradePlanOutputSchema` (`types.ts:387-390`) and the now-false comment at `types.ts:310`. Those schemas are `{ markdown: string }` — a contract carrying zero information a caller can act on.
 - The three JSON tools keep both channels; `outputSchema` there is a real contract. Drop the pretty-printer instead (measured −20% on the text half, 1,670,811 → 1,337,658):
 
 ```ts
-function jsonResult<T extends Record<string, unknown>>(payload: T, notice?: string): CallToolResult {
+function jsonResult<T extends Record<string, unknown>>(
+  payload: T,
+  notice?: string,
+): CallToolResult {
   // The notice goes FIRST so an agent that reads only the head of a long blob still sees it.
   const json = JSON.stringify(payload);
   return {
@@ -219,9 +222,9 @@ The `T extends Record<string, unknown>` constraint also removes the unchecked `p
 ### Verify at build time, do not trust this brief
 
 - **zod v4 `.default()` through `registerTool(..., { inputSchema: schema.shape })`.** Unproven end to end. Confirm (a) the default survives into the advertised JSON Schema in `tools/list`, and (b) a `tools/call` that **omits** `limit` parses to `200` rather than `undefined` or an error. Probe over stdio. `exactOptionalPropertyTypes` bites here: `.default()` makes the inferred output non-optional, `.optional()` does not, and the handler destructure must match.
-- **`T extends Record<string, unknown>` actually accepts the three payloads.** `z.infer` produces type *aliases* (implicit index signature) so it should hold, but `GetSignalFormsRecipeOutput` has optional members under `exactOptionalPropertyTypes` — compile it, don't assume.
+- **`T extends Record<string, unknown>` actually accepts the three payloads.** `z.infer` produces type _aliases_ (implicit index signature) so it should hold, but `GetSignalFormsRecipeOutput` has optional members under `exactOptionalPropertyTypes` — compile it, don't assume.
 - **A real client still sees the output** after `structuredContent` is dropped from the two markdown tools. The recommendation rests on one spec sentence, not on an observation of Claude Code. If any client renders only `structuredContent`, the whole direction inverts.
-- **Re-measure the ratios on a real Angular repo.** The 16.9× report reduction comes from 60 *identical* generated components (3,655 findings, 57 distinct reasons) and is an **upper bound**. The 3-component run (17,629 → 8,052, 2.2×) is the honest lower bound. Do not quote 16.9× anywhere user-facing.
+- **Re-measure the ratios on a real Angular repo.** The 16.9× report reduction comes from 60 _identical_ generated components (3,655 findings, 57 distinct reasons) and is an **upper bound**. The 3-component run (17,629 → 8,052, 2.2×) is the honest lower bound. Do not quote 16.9× anywhere user-facing.
 
 ### Stated plainly
 
@@ -234,7 +237,7 @@ The `T extends Record<string, unknown>` constraint also removes the unchecked `p
 
 ## M13 — `verify_migration`
 
-Post-migration defect detection. **Eight checks ship, one is rejected outright, one is refused without a `before` tree.** The organising principle: only check what *compiles and is still wrong*. Anything `tsc` already reports is noise.
+Post-migration defect detection. **Eight checks ship, one is rejected outright, one is refused without a `before` tree.** The organising principle: only check what _compiles and is still wrong_. Anything `tsc` already reports is noise.
 
 ### The rejection, stated first
 
@@ -244,17 +247,17 @@ The **one** silent variant: a model key colliding with a `FieldState` member nam
 
 ### Checks that ship
 
-| check | severity | why the compiler misses it | evidence |
-|---|---|---|---|
-| `signalNotCalled` | error | `f().invalid` is a `Signal<boolean>`; TS2774 fires in *some* positions only | `_structure-chunk.d.ts:265-418` |
-| `deprecatedLogicShape` | warning | v22 keeps the bare-callback overload as `@deprecated`, so it compiles | `types/signals.d.ts:32-40` |
-| `preReleaseApiName` | error | `import { Field }` compiles (it is still a type alias); fails only at AOT | `_structure-chunk.d.ts:192`, `:1307` |
-| `staleErrorKey` | error | `ValidationError.kind` is `string`, not a union | `_structure-chunk.d.ts:1556-1561`, `:471-474` |
-| `schemaConstructionTimeRead` | warning | schema fn runs once, outside any reactive context | `fesm2022/_validation_errors-chunk.mjs:514-528` |
-| `nativeAttributeCollision` | error | AOT-only (NG8022) | `src/core/detect-template.ts:180-219` (before-state twin) |
-| `orphanFieldRisk` | warning | destructuring the tree typechecks | `_validation_errors-chunk.mjs:1121`, `:1123` |
-| `controlInSignalFormModel` | error | `FieldTree` has an `AbstractControl` branch, so it typechecks | `_validation_errors-chunk.mjs:884` |
-| `leftoverReactiveForms` / `reactiveFormsModuleImport` | error / info | not a type error at all | `package.json` exports; `types/signals-compat.d.ts:252` |
+| check                                                 | severity     | why the compiler misses it                                                  | evidence                                                  |
+| ----------------------------------------------------- | ------------ | --------------------------------------------------------------------------- | --------------------------------------------------------- |
+| `signalNotCalled`                                     | error        | `f().invalid` is a `Signal<boolean>`; TS2774 fires in _some_ positions only | `_structure-chunk.d.ts:265-418`                           |
+| `deprecatedLogicShape`                                | warning      | v22 keeps the bare-callback overload as `@deprecated`, so it compiles       | `types/signals.d.ts:32-40`                                |
+| `preReleaseApiName`                                   | error        | `import { Field }` compiles (it is still a type alias); fails only at AOT   | `_structure-chunk.d.ts:192`, `:1307`                      |
+| `staleErrorKey`                                       | error        | `ValidationError.kind` is `string`, not a union                             | `_structure-chunk.d.ts:1556-1561`, `:471-474`             |
+| `schemaConstructionTimeRead`                          | warning      | schema fn runs once, outside any reactive context                           | `fesm2022/_validation_errors-chunk.mjs:514-528`           |
+| `nativeAttributeCollision`                            | error        | AOT-only (NG8022)                                                           | `src/core/detect-template.ts:180-219` (before-state twin) |
+| `orphanFieldRisk`                                     | warning      | destructuring the tree typechecks                                           | `_validation_errors-chunk.mjs:1121`, `:1123`              |
+| `controlInSignalFormModel`                            | error        | `FieldTree` has an `AbstractControl` branch, so it typechecks               | `_validation_errors-chunk.mjs:884`                        |
+| `leftoverReactiveForms` / `reactiveFormsModuleImport` | error / info | not a type error at all                                                     | `package.json` exports; `types/signals-compat.d.ts:252`   |
 
 **`signalNotCalled` — where TS2774 slips.** Compiled one statement per line against 22.0.7:
 
@@ -275,11 +278,31 @@ Detection: a `PropertyAccessExpression` whose expression is a `CallExpression`, 
 
 ```ts
 const FIELD_STATE_SIGNALS = new Set([
-  'value','controlValue','disabled','max','maxLength','min','minLength','name','pattern',
-  'readonly','required','touched','dirty','hidden','disabledReasons','errors','errorSummary',
-  'valid','invalid','pending','submitting','keyInParent','formFieldBindings',
+  'value',
+  'controlValue',
+  'disabled',
+  'max',
+  'maxLength',
+  'min',
+  'minLength',
+  'name',
+  'pattern',
+  'readonly',
+  'required',
+  'touched',
+  'dirty',
+  'hidden',
+  'disabledReasons',
+  'errors',
+  'errorSummary',
+  'valid',
+  'invalid',
+  'pending',
+  'submitting',
+  'keyInParent',
+  'formFieldBindings',
 ]);
-const SIGNAL_OK_SUFFIX = new Set(['set','update','asReadonly']); // f.email().value.set(v) is correct
+const SIGNAL_OK_SUFFIX = new Set(['set', 'update', 'asReadonly']); // f.email().value.set(v) is correct
 ```
 
 Four guards, all load-bearing: allow `.set`/`.update`/`.asReadonly` after `value`/`controlValue`; allow the whole expression as an argument to `computed`/`effect`/`toObservable`/`linkedSignal`; only run in files importing `@angular/forms/signals`; require the receiver root to be bound to `form(`/`compatForm(` via the existing name-binding pass.
@@ -296,19 +319,19 @@ declare function disabled<…>(path, logic?: string | LogicFn<…>): void;
 
 **`preReleaseApiName` — the premise in the research corrects a project belief.** `[field]` is **not** a hallucination. It shipped:
 
-| package | class | selector | token |
-|---|---|---|---|
-| 21.0.0 | `Field` | `"[field]"` | `FIELD` |
+| package | class       | selector        | token        |
+| ------- | ----------- | --------------- | ------------ |
+| 21.0.0  | `Field`     | `"[field]"`     | `FIELD`      |
 | 21.2.19 | `FormField` | `"[formField]"` | `FORM_FIELD` |
-| 22.0.7 | `FormField` | `"[formField]"` | `FORM_FIELD` |
+| 22.0.7  | `FormField` | `"[formField]"` | `FORM_FIELD` |
 
 Confirmed for 22.0.7 at `_structure-chunk.d.ts:1307`. `Control` / `[control]` appears in **none** of the three — and yet v22's own JSDoc still prints `<input id="email" type="email" [control]="email" />` at `types/signals.d.ts:50`, the only `[control]` occurrence in the whole v22 type surface and a plausible contamination source for the "no Control export" warning already in `SERVER_INSTRUCTIONS` (`server.ts:127-130`). The message must not claim `[field]` was never real.
 
-**`leftoverReactiveForms` must be gated on the compat entry point** or it flags the documented migration path. The package exports `.`, `./signals`, `./signals/compat` (confirmed from `verify/node_modules/@angular/forms/package.json`), `SignalFormControl extends AbstractControl` (`types/signals-compat.d.ts:252`), and `compatForm` overloads at `:52`, `:87`, `:121`. Run the check only when the file imports `@angular/forms/signals` **and not** `@angular/forms/signals/compat`, and names neither `compatForm` nor `SignalFormControl`. When compat *is* present, emit one `info`: "Interop file — Reactive Forms constructs here are expected while the compat layer is in use."
+**`leftoverReactiveForms` must be gated on the compat entry point** or it flags the documented migration path. The package exports `.`, `./signals`, `./signals/compat` (confirmed from `verify/node_modules/@angular/forms/package.json`), `SignalFormControl extends AbstractControl` (`types/signals-compat.d.ts:252`), and `compatForm` overloads at `:52`, `:87`, `:121`. Run the check only when the file imports `@angular/forms/signals` **and not** `@angular/forms/signals/compat`, and names neither `compatForm` nor `SignalFormControl`. When compat _is_ present, emit one `info`: "Interop file — Reactive Forms constructs here are expected while the compat layer is in use."
 
 **`schemaConstructionTimeRead`.** `SchemaImpl.compile()` memoises and invokes `this.schemaFn(path.fieldPathProxy)` in a plain try/finally — no `computed`, no `effect` (`fesm2022/_validation_errors-chunk.mjs:514-528`). So `form(m, (p) => { if (isAdmin()) required(p.ssn); })` bakes the value in permanently and compiles clean. Detect a zero-argument `CallExpression` whose **immediately enclosing function is the schema callback itself** (not a nested arrow) — that exclusion is what keeps `validate(p.x, ({ stateOf }) => stateOf(p.y).touched())` out of the results, which matters because M15's cross-field recipe uses exactly that shape. Severity `warning`, and the message must say the tool cannot tell a signal read from a plain method call.
 
-**Adjudication between researchers — `orphanFieldRisk`.** The M13 pass proposes flagging **only** array-item field references (NG01904). The M15 FormRecord pass *executed* the record case and observed **NG01902** ("Orphan field, looking for property 'carol' of \<root\>") after `delete`-ing a record key. Both throw from the same `keyInParent` computed (`_validation_errors-chunk.mjs:1121` and `:1123`). The shipped source settles it: widen the rule to a held field reached by **an index into an array-valued field OR a dynamic key into a `Record`-typed field**, and keep fixed-shape object keys out (a fixed key never leaves the model, and flagging every `const { email } = f` is pure noise). Do not flag `@for` template locals — `@for (field of form.emails; track field)` is the documented idiom.
+**Adjudication between researchers — `orphanFieldRisk`.** The M13 pass proposes flagging **only** array-item field references (NG01904). The M15 FormRecord pass _executed_ the record case and observed **NG01902** ("Orphan field, looking for property 'carol' of \<root\>") after `delete`-ing a record key. Both throw from the same `keyInParent` computed (`_validation_errors-chunk.mjs:1121` and `:1123`). The shipped source settles it: widen the rule to a held field reached by **an index into an array-valued field OR a dynamic key into a `Record`-typed field**, and keep fixed-shape object keys out (a fixed key never leaves the model, and flagging every `const { email } = f` is pure noise). Do not flag `@for` template locals — `@for (field of form.emails; track field)` is the documented idiom.
 
 **Bonus check, source-verified:** `form(signal({ first: '', last: new FormControl('') }))` typechecks (the `[TModel] extends [AbstractControl]` branch of `FieldTree`, `_structure-chunk.d.ts:208`) and throws at the first rule that reads the value — `RuntimeError 1907: "Tried to read an 'AbstractControl' value from a 'form()'. Did you mean to use 'compatForm()' instead?"` (`_validation_errors-chunk.mjs:884`). Statically decidable within one file.
 
@@ -316,26 +339,38 @@ Confirmed for 22.0.7 at `_structure-chunk.d.ts:1307`. `Control` / `[control]` ap
 
 **`droppedConstraint` is not decidable from the after-state.** The M9 case — a template carried `minlength="8"` as the only statement of the constraint, the agent deleted it to avoid NG8022, added no schema rule — leaves a field with no rule, indistinguishable from the thousands of fields that legitimately have none. Do not ship a heuristic.
 
-What *is* sound is differential, and it stays read-only: an optional `before` input naming a pre-migration copy (a git worktree, `git archive`). Restrict pairing to same-named paths and emit an `info` "could not pair" rather than inventing a match. When `before` is absent the output **must** carry:
+What _is_ sound is differential, and it stays read-only: an optional `before` input naming a pre-migration copy (a git worktree, `git archive`). Restrict pairing to same-named paths and emit an `info` "could not pair" rather than inventing a match. When `before` is absent the output **must** carry:
 
 ```ts
-checksSkipped: [{ check: 'droppedConstraint', reason:
-  'Requires a pre-migration copy; pass `before`. A dropped constraint leaves no trace in ' +
-  'the migrated file, so this cannot be inferred.' }]
+checksSkipped: [
+  {
+    check: 'droppedConstraint',
+    reason:
+      'Requires a pre-migration copy; pass `before`. A dropped constraint leaves no trace in ' +
+      'the migrated file, so this cannot be inferred.',
+  },
+];
 ```
 
 Silence would read as a pass. Do not describe the tool as a diff-and-fix tool; it reads two trees and writes neither.
 
 ### Schemas (`src/core/types.ts`)
 
-`severity` is deliberately a **new** vocabulary, not `mechanical | judgment` — that pair grades migration *work*, and grading a defect "mechanical" is a category error.
+`severity` is deliberately a **new** vocabulary, not `mechanical | judgment` — that pair grades migration _work_, and grading a defect "mechanical" is a category error.
 
 ```ts
 export const VERIFY_CHECKS = [
-  'leftoverReactiveForms', 'reactiveFormsModuleImport', 'signalNotCalled',
-  'deprecatedLogicShape', 'preReleaseApiName', 'staleErrorKey',
-  'schemaConstructionTimeRead', 'nativeAttributeCollision', 'orphanFieldRisk',
-  'controlInSignalFormModel', 'droppedConstraint',
+  'leftoverReactiveForms',
+  'reactiveFormsModuleImport',
+  'signalNotCalled',
+  'deprecatedLogicShape',
+  'preReleaseApiName',
+  'staleErrorKey',
+  'schemaConstructionTimeRead',
+  'nativeAttributeCollision',
+  'orphanFieldRisk',
+  'controlInSignalFormModel',
+  'droppedConstraint',
 ] as const;
 export const verifyCheckSchema = z.enum(VERIFY_CHECKS);
 
@@ -375,7 +410,7 @@ export function verifyMigration(
   rootPath: string,
   fileSystem: FileSystemPort,
   options: VerifyMigrationOptions,
-): Result<VerifyMigrationOutput>
+): Result<VerifyMigrationOutput>;
 ```
 
 Server registration mirrors the five existing tools including `annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false }` (`server.ts:148`, `:173`, `:208`, `:243`, `:281`).
@@ -384,7 +419,7 @@ Server registration mirrors the five existing tools including `annotations: { re
 
 1. Types + a `verifyMigration` that returns `ok` with zero findings and a populated `checksSkipped`. Register the tool. This gets the shell and the disclaimer landed before any check exists.
 2. Then one check per commit, cheapest and highest-confidence first: `preReleaseApiName` → `staleErrorKey` → `deprecatedLogicShape` → `reactiveFormsModuleImport` → `leftoverReactiveForms` (with the compat gate) → `nativeAttributeCollision` (reuses `MIRRORED_ATTRS`, `detect-template.ts:180-219`) → `controlInSignalFormModel` → `signalNotCalled` → `orphanFieldRisk` → `schemaConstructionTimeRead` (last: highest false-positive rate).
-3. Each check: a fixture that *should* fire, a fixture that must **not** (the compat-interop file, the `f.email().value.set(v)` write path, the `computed(() => f().invalid)` pass-through), then implement.
+3. Each check: a fixture that _should_ fire, a fixture that must **not** (the compat-interop file, the `f.email().value.set(v)` write path, the `computed(() => f().invalid)` pass-through), then implement.
 4. **`test/verify-recipes-clean.test.ts`** — for every recipe whose `after` contains `from '@angular/forms/signals'`, `verifyMigration` must report zero `error`-severity findings. This is the cheapest possible guard against both a false-positive check and a stale recipe, and it will immediately catch the `schemaConstructionTimeRead` nesting rule if it is wrong.
 
 ### Verify at build time
@@ -439,7 +474,7 @@ Add `realpathSync` to the existing `node:fs` import (`server.ts:7`); `fileURLToP
 
 ### Two defects the tests must be written against
 
-**1. The `windows` bullet claims the user answered when nothing was asked.** `src/server.ts:309` defaults `windows: windows ?? false`, and `inferredOptions` (`:320-323`) is built from `material`/`ngUpgrade` only — so `windows` can never be marked inferred and always falls through to `'you answered'` at `upgrade-report.ts:212`. Rendered on a v8→v9 plan with no `windows` argument: `` - `windows` — **no** (you answered), so 4 step(s) were EXCLUDED. `` Adding `windows` to `inferredOptions` is **not** the fix — it would then claim "detected from package.json", and package.json says nothing about anyone's OS. A third attribution is needed:
+**1. The `windows` bullet claims the user answered when nothing was asked.** `src/server.ts:309` defaults `windows: windows ?? false`, and `inferredOptions` (`:320-323`) is built from `material`/`ngUpgrade` only — so `windows` can never be marked inferred and always falls through to `'you answered'` at `upgrade-report.ts:212`. Rendered on a v8→v9 plan with no `windows` argument: ``- `windows` — **no** (you answered), so 4 step(s) were EXCLUDED.`` Adding `windows` to `inferredOptions` is **not** the fix — it would then claim "detected from package.json", and package.json says nothing about anyone's OS. A third attribution is needed:
 
 ```ts
 export type AnswerSource = 'answered' | 'inferred' | 'default';
@@ -481,17 +516,27 @@ Three parsers keep assertions structural:
 /** `19 → 20: \`cmd\`` lines, in order. */
 function hops(markdown: string): Array<{ from: number; to: number; command: string }> {
   return [...markdown.matchAll(/^(\d+) → (\d+): (.+)$/gm)].map((m) => ({
-    from: Number(m[1]), to: Number(m[2]), command: m[3] ?? '',
+    from: Number(m[1]),
+    to: Number(m[2]),
+    command: m[3] ?? '',
   }));
 }
 
 /** Each `## → vN (K steps)` hop with its declared count and the `### ` titles under it. */
-function hopSections(markdown: string): Array<{ major: number; declared: number; titles: string[] }> {
+function hopSections(
+  markdown: string,
+): Array<{ major: number; declared: number; titles: string[] }> {
   const out: Array<{ major: number; declared: number; titles: string[] }> = [];
   for (const line of markdown.split('\n')) {
     const head = /^## → v(\d+) \((\d+) steps\)$/.exec(line);
-    if (head) { out.push({ major: Number(head[1]), declared: Number(head[2]), titles: [] }); continue; }
-    if (line.startsWith('## ')) { if (out.length > 0) out.push({ major: -1, declared: -1, titles: [] }); continue; }
+    if (head) {
+      out.push({ major: Number(head[1]), declared: Number(head[2]), titles: [] });
+      continue;
+    }
+    if (line.startsWith('## ')) {
+      if (out.length > 0) out.push({ major: -1, declared: -1, titles: [] });
+      continue;
+    }
     if (line.startsWith('### ')) out.at(-1)?.titles.push(line.slice(4));
   }
   return out.filter((s) => s.major !== -1);
@@ -513,7 +558,7 @@ Assertions, none presence-only:
 5. **Attribution** (post-fix): material omitted → `'detected from package.json'`; material passed → `'you answered'`; windows omitted → **neither**, asserted on the 8→9 plan where the bullet is non-trivial.
 6. **Step accounting**: `expect((md.match(/^### /gm) ?? []).length).toBe(plan.total)`; per hop `expect(s.titles).toEqual(plan.byMajor.find(g => g.major === s.major)!.steps.map(x => x.step))` — order included, so a regrouping regression fails; one `**Gate:**` line per hop (`:252`).
 7. **`total === 0`**: full-string `toBe` for both `signalFormsGoal` values.
-8. **Peers** (`:61-105`): `peers: undefined` → no 'Third-party' heading (silence, never a false all-clear); `inspected: 0` → the refusal section *and* `expect(section).not.toMatch(/compatible|no blockers|all clear/i)`; blocking present → every name and its `peerRange` rendered, heading names `plan.toMajor` — assert on a 16→18 plan so a hardcoded 22 fails.
+8. **Peers** (`:61-105`): `peers: undefined` → no 'Third-party' heading (silence, never a false all-clear); `inspected: 0` → the refusal section _and_ `expect(section).not.toMatch(/compatible|no blockers|all clear/i)`; blocking present → every name and its `peerRange` rendered, heading names `plan.toMajor` — assert on a 16→18 plan so a hardcoded 22 fails.
 9. **Companions** (`:23-55`): `[]` → no heading; the 6-package Nx group → `shown.length + extra === 6`, and post-fix no single range stated when ranges differ; category headings in `external, build-tooling, release-train` order, at most once each.
 10. **Provenance** (`:266-271`): extract the backticked commit, `expect(plan.provenance.commit.startsWith(shown) && shown.length === 10)`.
 11. **Hygiene sweep over ~12 plans**: no `'undefined'`, `'NaN'`, `'[object Object]'`, `'null'`; no trailing whitespace on any line; every markdown link URL starts with `https://`. Cheap, and the only assertion covering all branches at once.
@@ -533,7 +578,13 @@ async function connect() {
   const server = createServer();
   const client = new Client({ name: 'test', version: '0.0.0' }, { capabilities: {} });
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
-  return { client, close: async (): Promise<void> => { await client.close(); await server.close(); } };
+  return {
+    client,
+    close: async (): Promise<void> => {
+      await client.close();
+      await server.close();
+    },
+  };
 }
 ```
 
@@ -592,7 +643,7 @@ And M12 must land first: M15 adds constructs, which changes report totals, and t
 
 ### 1. `crossFieldValidator` — do this one first
 
-Highest value, and the only one where the *detector gap is itself a silent under-report of the M5/M11 class*. There is no handler for the plural `validators:` key anywhere in `src/core`. `collectFromDeadValidatorOption` (`detect.ts:1011-1035`) fires only on the singular `validator`/`asyncValidator`; `collectFromAsyncValidatorsOption` (`:1050-1063`) only on `asyncValidators`; `collectCustomValidatorDeclaration` (`:1066-1099`) fires at the validator's **declaration**, so it cannot know what the validator was attached to, and fires not at all when the validator is imported. Measured: the same cross-field form reports **3 findings including 1 judgment** when the validator is local, and **2 findings, 0 judgment** when it is imported. A form whose entire difficulty is a cross-field rule reports as fully mechanical.
+Highest value, and the only one where the _detector gap is itself a silent under-report of the M5/M11 class_. There is no handler for the plural `validators:` key anywhere in `src/core`. `collectFromDeadValidatorOption` (`detect.ts:1011-1035`) fires only on the singular `validator`/`asyncValidator`; `collectFromAsyncValidatorsOption` (`:1050-1063`) only on `asyncValidators`; `collectCustomValidatorDeclaration` (`:1066-1099`) fires at the validator's **declaration**, so it cannot know what the validator was attached to, and fires not at all when the validator is imported. Measured: the same cross-field form reports **3 findings including 1 judgment** when the validator is local, and **2 findings, 0 judgment** when it is imported. A form whose entire difficulty is a cross-field rule reports as fully mechanical.
 
 **Detector.** New `collectFromValidatorsOption` firing on key `validators` when the enclosing object literal is **argument index 1** of either `new FormGroup`/`new FormArray` or `<fb>.group(...)`/`.array(...)`. `isConstructorOptionsObject` (`detect.ts:1037-1048`) is the starting point but must be tightened — it currently accepts any `CONTROL_TYPES` member including `FormControl`, and checks no argument position. Also handle the positional legacy form `new FormGroup({...}, passwordsMatch)` (second ctor arg is `ValidatorFn | ValidatorFn[] | AbstractControlOptions | null`). Emit `groupValidator`, `judgment`. A control-level `validators: [x]` stays out — already covered by `Validators.*` / `customValidator`.
 
@@ -600,20 +651,20 @@ Highest value, and the only one where the *detector gap is itself a silent under
 
 **Signal Forms has three placements with three different destinations**, all four observed at runtime on 22.0.7:
 
-| shape | error lands on | root |
-|---|---|---|
-| `validate(path.confirmPassword, …)` | `f.confirmPassword().errors()` | `errorSummary` yes, `invalid` true |
-| `validateTree(path, … fieldTree: fieldTreeOf(path.confirmPassword))` | `f.confirmPassword().errors()` | same |
-| `validate(path, …)` at the group path | `f().errors()` **only** | `f.confirmPassword().invalid()` stays **false** |
+| shape                                                                | error lands on                 | root                                            |
+| -------------------------------------------------------------------- | ------------------------------ | ----------------------------------------------- |
+| `validate(path.confirmPassword, …)`                                  | `f.confirmPassword().errors()` | `errorSummary` yes, `invalid` true              |
+| `validateTree(path, … fieldTree: fieldTreeOf(path.confirmPassword))` | `f.confirmPassword().errors()` | same                                            |
+| `validate(path, …)` at the group path                                | `f().errors()` **only**        | `f.confirmPassword().invalid()` stays **false** |
 
 Mechanism: `addDefaultField` sets `error.fieldTree ??= ctx.fieldTree`; tree errors propagate **downward** from the bound node and each node keeps only `err.fieldTree === this.node.fieldTree`. `errors()` is own-errors; `errorSummary()` is own + descendants (`_structure-chunk.d.ts:353-360`). **Where the error lands is the migration** — a "faithful" port to the group path keeps `form.invalid` working while every per-field `@if` block goes silent.
 
 Two type-level constraints, verified by compilation:
 
 - **`validate()` structurally cannot target another field.** `FieldValidator` returns `ValidationError.WithoutFieldTree`, which declares `readonly fieldTree?: never` (`_structure-chunk.d.ts:1599-1604`; it also declares `formField?: never`). Setting it is `TS2322: Type 'ReadonlyFieldTree<…>' is not assignable to type 'undefined'`. Only `validateTree` (`types/signals.d.ts:495`) takes `WithOptionalFieldTree` with `fieldTree?: ReadonlyFieldTree<unknown>`.
-- **A reusable cross-field rule takes `SchemaPathTree<T>`, not `SchemaPath<T>`** — the latter has no subfield properties (`TS2339`). The existing `customValidator` recipe's `SchemaPath<string>` is correct for a *leaf* and wrong here.
+- **A reusable cross-field rule takes `SchemaPathTree<T>`, not `SchemaPath<T>`** — the latter has no subfield properties (`TS2339`). The existing `customValidator` recipe's `SchemaPath<string>` is correct for a _leaf_ and wrong here.
 
-**Undocumented footgun to encode as a caveat.** `fieldTree` is typed `ReadonlyFieldTree<unknown>`, so the compiler accepts *any* field — but a `validateTree` error whose target is not a **descendant** of the bound path matches nowhere and is silently discarded, form reporting valid. Observed: `validateTree(path.nested, … fieldTree: fieldTreeOf(path.password))` → all `errors()` empty, `root.invalid` **false**. Rule: bind at the lowest common ancestor of every field targeted. Write this as *observed v22 behaviour with the file:line*, not as an API contract.
+**Undocumented footgun to encode as a caveat.** `fieldTree` is typed `ReadonlyFieldTree<unknown>`, so the compiler accepts _any_ field — but a `validateTree` error whose target is not a **descendant** of the bound path matches nowhere and is silently discarded, form reporting valid. Observed: `validateTree(path.nested, … fieldTree: fieldTreeOf(path.password))` → all `errors()` empty, `root.invalid` **false**. Rule: bind at the lowest common ancestor of every field targeted. Write this as _observed v22 behaviour with the file:line_, not as an API contract.
 
 The `after` (compile-verified against 22.0.7), default answer — error on the field the user must fix:
 
@@ -663,9 +714,9 @@ Minimum surface: add `'FormRecord'` to `CONTROL_TYPES` + `REPORTED_CONTROL_TYPES
 
 Runtime-observed on 22.0.7: keys added after creation get the full schema; `ctx.key()` inside a validator returns the record key; `f['k']().value.set(v)` writes through; deleting a key makes a held reference throw NG01902.
 
-**Docs gap, stated plainly.** angular.dev's `applyEach` page says only *"Applies a schema to each item of an array"* and **both** of its usage notes — one under each overload — are the same array example. There is no record example anywhere. `search_documentation("applyEach dynamic keys record model", version: 22)` returns `{"results":[],"searchedVersion":22}`; so does `"FormRecord signal forms migration"`. **This is the `getError` situation again: the API demonstrably ships and works, the docs do not describe this use.** The caveat must say so, and REVERIFICATION.md should carry a re-probe on each Angular minor.
+**Docs gap, stated plainly.** angular.dev's `applyEach` page says only _"Applies a schema to each item of an array"_ and **both** of its usage notes — one under each overload — are the same array example. There is no record example anywhere. `search_documentation("applyEach dynamic keys record model", version: 22)` returns `{"results":[],"searchedVersion":22}`; so does `"FormRecord signal forms migration"`. **This is the `getError` situation again: the API demonstrably ships and works, the docs do not describe this use.** The caveat must say so, and REVERIFICATION.md should carry a re-probe on each Angular minor.
 
-The documented half **is** citable: the Dynamic Forms with JSON guide states *"The model uses `Record<string, …>` because the keys are not known ahead of time"*, shows `model.update(c => ({...c, [name]: …}))`, and documents the accessor pattern with its reason (*"Template type-checking treats `dynamicForm[name]` as an independent expression"*). `DOCS.dynamicJson` already exists at `src/core/recipes.ts:34`.
+The documented half **is** citable: the Dynamic Forms with JSON guide states _"The model uses `Record<string, …>` because the keys are not known ahead of time"_, shows `model.update(c => ({...c, [name]: …}))`, and documents the accessor pattern with its reason (_"Template type-checking treats `dynamicForm[name]` as an independent expression"_). `DOCS.dynamicJson` already exists at `src/core/recipes.ts:34`.
 
 **Under this project's own strictness** (`noUncheckedIndexedAccess`) `f[key]` is `FieldTree<T> | undefined` — TS2322 when assigned to `Field<T>` — and it really can be `undefined` at runtime (the field proxy returns `undefined` for an absent key). So the `after` must route through the docs' accessor, and the cast described honestly as an assertion the caller owes a runtime guarantee for:
 
@@ -687,15 +738,21 @@ Reactive-side facts: `FormGroup extends AbstractControl` (`forms.mjs:2447`), `Fo
 
 **The migration is a redesign that splits one class into four destinations**: structure → interface + empty-value constant; constructor validator wiring → `schema()`; domain methods → plain functions over the model type; derived getters → `computed()` on the owning component. Each destination is documented individually (model-design guide, schemas guide, custom-controls "Making controls reusable"). **The mapping from subclass member to destination is INFERRED** — `search_documentation(version: 22)` returns zero results for subclassing in either direction. That must be a `NOT DOCUMENTED` caveat, per the project's refuse-rather-than-fabricate stance.
 
-The documented **staging** step (not the destination): `compatForm()` takes a model whose properties are `AbstractControl` instances, and `CompatFieldState<TControl>` declares `control: Signal<TControl>` (`_structure-chunk.d.ts:496-498`) — so the declared subclass type survives and `f.shippingAddress().control().formatOneLine()` compiles. The migration guide documents this shape for a plain `FormGroup`; that the *subclass* type is preserved is a compile check, not a documented statement. Offer it for a subclass instantiated in many places; it defers the redesign rather than performing it.
+The documented **staging** step (not the destination): `compatForm()` takes a model whose properties are `AbstractControl` instances, and `CompatFieldState<TControl>` declares `control: Signal<TControl>` (`_structure-chunk.d.ts:496-498`) — so the declared subclass type survives and `f.shippingAddress().control().formatOneLine()` compiles. The migration guide documents this shape for a plain `FormGroup`; that the _subclass_ type is preserved is a compile check, not a documented statement. Offer it for a subclass instantiated in many places; it defers the redesign rather than performing it.
 
 **Detector.** Wire into the existing class branch (`detect.ts:710-713`) beside `collectControlValueAccessor` (`:727-754`, the pattern to mirror, including reporting once per class). The walker (`detect.ts:248-252`) recurses independently of `collectFromNode`'s early returns, so the `new FormControl(...)` calls inside `super({...})` are still found separately and keep `definesForm: true` — the subclass finding itself is `definesForm: false`.
 
 ```ts
 /** Reactive Forms base classes real codebases subclass. Superset of CONTROL_TYPES. */
 const SUBCLASSABLE_CONTROL_TYPES: ReadonlySet<string> = new Set([
-  'AbstractControl', 'FormControl', 'FormGroup', 'FormArray', 'FormRecord',
-  'UntypedFormControl', 'UntypedFormGroup', 'UntypedFormArray',
+  'AbstractControl',
+  'FormControl',
+  'FormGroup',
+  'FormArray',
+  'FormRecord',
+  'UntypedFormControl',
+  'UntypedFormGroup',
+  'UntypedFormArray',
 ]);
 ```
 

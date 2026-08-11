@@ -20,24 +20,26 @@ Design doc: `docs/superpowers/specs/2026-08-11-tier-a-coverage-design.md`.
 
 ## File Structure
 
-| File | Responsibility |
-|---|---|
-| `src/core/detect.ts` | alias map + `canonical()` at 15 sites; inline-template pass; destructuring binding |
-| `test/detect-aliases.test.ts` | **new** — differential test: aliased ≡ unaliased |
-| `test/detect-inline-template.test.ts` | **new** — constructs + absolute line numbers + substitution skip |
-| `test/detect-shadowing.test.ts` | extend — destructured uses found; non-form destructuring still ignored |
-| `src/core/recipes.ts` | NG01902 orphan caveat on `formStateRead` |
-| `ROADMAP.md` | stop attributing these three to `ts.Program` |
+| File                                  | Responsibility                                                                     |
+| ------------------------------------- | ---------------------------------------------------------------------------------- |
+| `src/core/detect.ts`                  | alias map + `canonical()` at 15 sites; inline-template pass; destructuring binding |
+| `test/detect-aliases.test.ts`         | **new** — differential test: aliased ≡ unaliased                                   |
+| `test/detect-inline-template.test.ts` | **new** — constructs + absolute line numbers + substitution skip                   |
+| `test/detect-shadowing.test.ts`       | extend — destructured uses found; non-form destructuring still ignored             |
+| `src/core/recipes.ts`                 | NG01902 orphan caveat on `formStateRead`                                           |
+| `ROADMAP.md`                          | stop attributing these three to `ts.Program`                                       |
 
 ---
 
 ### Task 1: Named import aliases
 
 **Files:**
+
 - Modify: `src/core/detect.ts`
 - Test: `test/detect-aliases.test.ts` (create)
 
 **Interfaces:**
+
 - Produces (module-private): `collectFormsAliases(sourceFile): ReadonlyMap<string,string>`, and a `canonical(name, aliases)` helper.
 - The alias map is threaded the same way `BoundNames` already is.
 
@@ -189,7 +191,7 @@ function canonical(name: string, aliases: ReadonlyMap<string, string>): string {
 Add `aliases` to `BoundNames` (it is already built once per file and passed to pass 2), then wrap each site listed in the design doc:
 
 - Set membership (13): `:410`, `:480`, `:492`, `:902`, `:933`, `:1366`, `:984`, `:1018`, `:1038`, `:1110`, `:1253`, `:600`.
-- Suffix match (2): `isFormBuilderType` `:527` and `isInjectFormBuilder` `:543` — both test `.endsWith('FormBuilder')`, so they need `canonical(...)` applied *before* the suffix test.
+- Suffix match (2): `isFormBuilderType` `:527` and `isInjectFormBuilder` `:543` — both test `.endsWith('FormBuilder')`, so they need `canonical(...)` applied _before_ the suffix test.
 
 Line numbers are pre-edit; re-locate by the predicate, not the number.
 
@@ -214,10 +216,12 @@ git commit -m "An import alias no longer hides 80% of a file's findings"
 ### Task 2: Inline `template:` strings
 
 **Files:**
+
 - Modify: `src/core/detect.ts`
 - Test: `test/detect-inline-template.test.ts` (create)
 
 **Interfaces:**
+
 - Consumes: `detectInTemplate(filePath, text)` — the M7 scanner, unchanged.
 - Produces (module-private): `collectInlineTemplates(sourceFile, filePath): FindingDraft[]`-equivalent, merged into `detectInSource`'s output.
 
@@ -366,10 +370,12 @@ git commit -m "Scan inline template: strings — half a migration lived in them"
 ### Task 3: Destructured controls and the orphan caveat
 
 **Files:**
+
 - Modify: `src/core/detect.ts`, `src/core/recipes.ts`
 - Test: `test/detect-shadowing.test.ts` (extend)
 
 **Interfaces:**
+
 - Consumes: `isFormDerivedReceiver(receiver, formNames)` — unchanged.
 - Produces: destructured names join `BoundNames.forms`.
 
@@ -434,19 +440,19 @@ Expected: the two `setValue` / `markAsTouched` assertions FAIL.
 In `collectFormLikeNames`'s `visit`, add:
 
 ```ts
-    // `const { email, pw } = this.form.controls` — the bound names are controls, so uses
-    // after this line are edit sites just as `form.controls.email.setValue()` would be.
-    if (
-      ts.isVariableDeclaration(node) &&
-      ts.isObjectBindingPattern(node.name) &&
-      node.initializer !== undefined &&
-      isFormDerivedReceiver(node.initializer, names)
-    ) {
-      for (const element of node.name.elements) {
-        const bound = declaredName(element.name);
-        if (bound !== undefined) names.add(bound);
-      }
-    }
+// `const { email, pw } = this.form.controls` — the bound names are controls, so uses
+// after this line are edit sites just as `form.controls.email.setValue()` would be.
+if (
+  ts.isVariableDeclaration(node) &&
+  ts.isObjectBindingPattern(node.name) &&
+  node.initializer !== undefined &&
+  isFormDerivedReceiver(node.initializer, names)
+) {
+  for (const element of node.name.elements) {
+    const bound = declaredName(element.name);
+    if (bound !== undefined) names.add(bound);
+  }
+}
 ```
 
 Order matters: this must run after the form itself is bound, so `collectFormLikeNames` needs a second pass over the file (the existing `bindControlAliases` already establishes that pattern — follow it).
@@ -485,6 +491,7 @@ git commit -m "Track controls destructured off a form, and warn about orphan fie
 ### Task 4: Correct the ROADMAP attribution
 
 **Files:**
+
 - Modify: `ROADMAP.md`
 
 - [ ] **Step 1: Rewrite the "No TypeChecker" limitation**
