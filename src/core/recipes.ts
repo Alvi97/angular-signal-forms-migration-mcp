@@ -44,6 +44,7 @@ export const DOCS = {
   rxjsInterop: 'https://angular.dev/ecosystem/rxjs-interop',
   schemas: 'https://angular.dev/guide/forms/signals/schemas',
   formBuilderApi: 'https://angular.dev/api/forms/FormBuilder',
+  orphanFieldError: 'https://angular.dev/errors/NG01902',
 } as const;
 
 /** Pages that establish the core model/form()/schema shape every recipe rests on. */
@@ -1221,6 +1222,13 @@ readonly showWarning = computed(() => this.f().dirty() && this.f().touched());`,
           'an error KIND, not the old key: `minlength` became `minLength` and `maxlength` ' +
           'became `maxLength`, so a transliterated `hasError("minlength")` compiles and ' +
           'silently never matches.',
+        'Destructuring the field tree (`const { email } = f`) TYPECHECKS — subfields are real ' +
+          'properties on FieldTree — so a type-level check alone will call it safe. But the ' +
+          'destructured reference is a live view into the parent, not a snapshot: if the ' +
+          'model shape changes so that key no longer exists, reading it throws NG01902 ' +
+          '"Orphan field" (the guard is in the shipped source, not only the error index). ' +
+          'Safe for a fixed model; for one whose keys come and go, read through the tree at ' +
+          'the point of use.',
       ],
       sources: [
         DOCS.essentials,
@@ -1228,6 +1236,7 @@ readonly showWarning = computed(() => this.f().dirty() && this.f().touched());`,
         DOCS.models,
         DOCS.fieldStateApi,
         DOCS.templateExpressions,
+        DOCS.orphanFieldError,
       ],
     },
   ],

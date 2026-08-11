@@ -411,7 +411,34 @@ function collectFormLikeNames(
 
   bindFactoryBuiltForms(sourceFile, names, aliases);
   bindControlAliases(sourceFile, names);
+  bindDestructuredControls(sourceFile, names);
   return names;
+}
+
+/**
+ * Binds `const { email, pw } = this.form.controls`.
+ *
+ * Without this the destructuring site was reported and every use after it was missed, so the
+ * report said the file touched `.controls` without saying where the edits were. Runs after the
+ * form names are known, since the initializer has to be provably form-derived — which is also
+ * what keeps `const { size } = new Map()` out.
+ */
+function bindDestructuredControls(sourceFile: ts.SourceFile, names: Set<string>): void {
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isObjectBindingPattern(node.name) &&
+      node.initializer !== undefined &&
+      isFormDerivedReceiver(node.initializer, names)
+    ) {
+      for (const element of node.name.elements) {
+        const bound = declaredName(element.name);
+        if (bound !== undefined) names.add(bound);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(sourceFile, visit);
 }
 
 /**
