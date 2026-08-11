@@ -4,7 +4,7 @@
  * the Result into a CallToolResult ({ ok: false } becomes isError: true). All tools are
  * readOnlyHint: true; the server never writes to source files.
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -376,7 +376,7 @@ export function resolveCliAction(argv: readonly string[]): CliAction {
   return 'serve';
 }
 
-const USAGE = `${SERVER_NAME} v${SERVER_VERSION}
+export const USAGE_TEXT = `${SERVER_NAME} v${SERVER_VERSION}
 
 An MCP server that finds Angular Reactive Forms and advises on migrating them to
 Signal Forms. It detects and advises only — it never edits your code.
@@ -390,7 +390,7 @@ Add it to Claude Code:
   claude mcp add signal-forms-migration -- npx -y ${SERVER_NAME}@latest
 
 Tools: find_form_candidates, get_signalforms_recipe, analyze_migration_complexity,
-get_migration_report.
+get_migration_report, get_angular_upgrade_plan.
 
 Docs: https://github.com/Alvi97/angular-signal-forms-migration-mcp`;
 
@@ -403,7 +403,7 @@ async function main(): Promise<void> {
     return;
   }
   if (action === 'help') {
-    process.stdout.write(`${USAGE}\n`);
+    process.stdout.write(`${USAGE_TEXT}\n`);
     return;
   }
 
@@ -418,7 +418,31 @@ async function main(): Promise<void> {
   });
 }
 
-main().catch((cause: unknown) => {
-  logToStderr(`fatal: ${cause instanceof Error ? cause.message : String(cause)}`);
-  process.exit(1);
-});
+/**
+ * True only when this module IS the process entrypoint. Importing it — which every test of a
+ * tool handler must do — has to start no transport and fire no update check. Before this
+ * guard, `vitest run test/server-identity.test.ts` handed vitest's own stdio to a
+ * StdioServerTransport and made a live network request.
+ *
+ * Realpaths on both sides, and that is mandatory rather than defensive: npm installs the bin
+ * as a symlink, so argv[1] is `node_modules/.bin/angular-signal-forms-migration-mcp` while
+ * import.meta.url is `dist/server.js`. Comparing them naively is false there, and a guard
+ * that gets this wrong makes the published server start and then do nothing — strictly worse
+ * than the unconditional start it replaces.
+ */
+function isEntrypoint(): boolean {
+  const entry = process.argv[1];
+  if (entry === undefined) return false;
+  try {
+    return realpathSync(entry) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (isEntrypoint()) {
+  main().catch((cause: unknown) => {
+    logToStderr(`fatal: ${cause instanceof Error ? cause.message : String(cause)}`);
+    process.exit(1);
+  });
+}

@@ -235,3 +235,26 @@ describe('judgment findings are grouped by decision, not repeated per site', () 
     expect(md).toMatch(/1 distinct decision\(s\)/);
   });
 });
+
+/**
+ * M11 shipped inline `template:` scanning, but three prose sites kept telling users it did
+ * not happen. A report that understates its own coverage sends the agent looking for work
+ * the tool already did — and nothing tested either way, which is how it survived.
+ */
+describe('the Scope section describes what is actually scanned', () => {
+  const md = buildMigrationReport(
+    '/repo',
+    [file('/repo/a.ts', [['FormGroup', 'mechanical']])],
+    undefined,
+  );
+
+  it('does not claim inline template: strings are unscanned', () => {
+    expect(md).not.toMatch(/Inline\s+`?template:`?\s+strings and CSS\/SCSS are not scanned/i);
+    expect(md).not.toMatch(/inline[^.]{0,40}not scanned/i);
+  });
+
+  it('says inline templates ARE scanned, and that CSS is not', () => {
+    expect(md).toMatch(/inline `template:` strings/i);
+    expect(md).toMatch(/CSS\/SCSS/);
+  });
+});
