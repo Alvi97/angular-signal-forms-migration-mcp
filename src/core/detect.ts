@@ -252,7 +252,44 @@ export function detectInSource(filePath: string, text: string): Finding[] {
   };
   ts.forEachChild(sourceFile, visit);
 
-  return materialise(drafts, sourceFile, text);
+  return [
+    ...materialise(drafts, sourceFile, text),
+    ...collectInlineTemplates(sourceFile, filePath),
+  ];
+}
+
+/**
+ * Reactive Forms bindings in an inline `template:` string, scanned with the same token scanner
+ * that handles external .html. They were invisible before this: a component with [formGroup],
+ * formControlName and formArrayName inline reported zero Template.* findings while its .ts
+ * constructs came through normally, so the file looked like a form with no template work left.
+ *
+ * A template with ${substitutions} is SKIPPED. Its text is not the text the compiler sees, so
+ * every line number after the substitution would be a guess — and a wrong line is worse than a
+ * missing one.
+ *
+ * The file keeps its `owner` role: an external .html sorts last because it cannot be migrated
+ * without its component, but an inline template IS in its component.
+ */
+function collectInlineTemplates(sourceFile: ts.SourceFile, filePath: string): Finding[] {
+  const out: Finding[] = [];
+
+  const visit = (node: ts.Node): void => {
+    if (ts.isPropertyAssignment(node) && declaredName(node.name) === 'template') {
+      const literal = node.initializer;
+      if (ts.isNoSubstitutionTemplateLiteral(literal) || ts.isStringLiteral(literal)) {
+        const start = literal.getStart(sourceFile);
+        const startLine = ts.getLineAndCharacterOfPosition(sourceFile, start).line + 1;
+        for (const finding of detectInTemplate(filePath, literal.text)) {
+          out.push({ ...finding, line: startLine + finding.line - 1 });
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(sourceFile, visit);
+
+  return out;
 }
 
 function importsAngularForms(sourceFile: ts.SourceFile): boolean {
