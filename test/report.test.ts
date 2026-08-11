@@ -171,3 +171,67 @@ describe('version-sensitive recipes resolve against the detected version', () =>
     expect(report).toMatch(/neither/i);
   });
 });
+
+/**
+ * The judgment section printed one full reason per finding. On a 60-component fixture that
+ * was 1,296 findings restating 28 distinct (construct, reason) pairs — 94.5% of the whole
+ * report. Grouping is lossless: same information, each reason stated once.
+ *
+ * Keyed on the PAIR, not the construct: Template.nativeAttribute legitimately has a different
+ * reason per attribute (required / minlength / maxlength), so grouping by construct alone
+ * would silently drop two of three.
+ */
+describe('judgment findings are grouped by decision, not repeated per site', () => {
+  const many = (construct: string, count: number): FileFindings[] =>
+    Array.from({ length: count }, (_, i) =>
+      file(`/repo/src/c${String(i)}.ts`, [[construct, 'judgment']]),
+    );
+
+  it('states each distinct reason exactly once', () => {
+    const md = buildMigrationReport('/repo', many('FormArray.push', 12), undefined);
+    const occurrences = md.split('reason for FormArray.push').length - 1;
+    expect(occurrences).toBe(1);
+  });
+
+  it('lists every site under its decision', () => {
+    const md = buildMigrationReport('/repo', many('FormArray.push', 5), undefined);
+    for (let i = 0; i < 5; i++) {
+      expect(md).toContain(`src/c${String(i)}.ts:10`);
+    }
+  });
+
+  it('does not merge two constructs that share a name but differ in reason', () => {
+    const a = file('/repo/src/a.ts', []);
+    const withReasons: FileFindings = {
+      ...a,
+      findings: [
+        {
+          ...file('/repo/src/a.ts', [['Template.nativeAttribute', 'judgment']]).findings[0]!,
+          reason: 'required is the constraint',
+        },
+        {
+          ...file('/repo/src/a.ts', [['Template.nativeAttribute', 'judgment']]).findings[0]!,
+          reason: 'minlength is the constraint',
+          line: 22,
+        },
+      ],
+    };
+    const md = buildMigrationReport('/repo', [withReasons], undefined);
+    expect(md).toContain('required is the constraint');
+    expect(md).toContain('minlength is the constraint');
+  });
+
+  it('never truncates silently: the residual names the call that returns the rest', () => {
+    const md = buildMigrationReport('/repo', many('FormArray.push', 26), undefined);
+    expect(md).toMatch(/…and 6 more site\(s\)/);
+    expect(md).toContain('find_form_candidates');
+    expect(md).toContain('FormArray.push');
+  });
+
+  it('accounts for every judgment finding in the group totals', () => {
+    const md = buildMigrationReport('/repo', many('FormArray.push', 7), undefined);
+    // The section header states the totals, so a dropped site is visible.
+    expect(md).toMatch(/7 judgment finding\(s\)/);
+    expect(md).toMatch(/1 distinct decision\(s\)/);
+  });
+});
