@@ -128,8 +128,13 @@ against it, rather than handing the agent both variants.
   receiver was bound to a form in pass 1 — annotated `: FormGroup` / `: AbstractControl`,
   initialised from `new FormGroup(...)` / `fb.group(...)`, or built by a factory method that
   returns one of those. This is what keeps `params.get()`, `formData.get()` and `map.get()`
-  out of the report (verified against a real workspace: 38 true positives, 0 false positives).
-  The cost is that a form arriving through an unannotated intermediate — say
+  out of the report. Measured on a 50-repo corpus (2026-07): 38 true positives, 0 false
+  positives **on that corpus** — a measurement, not a property of the design. It was stated
+  as a property here, and the very case it named falsified it: binding was file-wide and
+  flat, so a local `const form = new FormData()` inherited the name from a `FormGroup` field
+  and `form.get(...)` was reported. M10 added nearest-binding-wins resolution against
+  `NON_FORM_INITIALIZERS`; a name bound through a constructor not on that list can still
+  shadow. The other cost is that a form arriving through an unannotated intermediate — say
   `getForm().get('email')` — is missed.
 - **Forms stored on a domain-model object are missed (cross-object access).** When a
   `FormGroup` lives as a property of a *data model* rather than the component —

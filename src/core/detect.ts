@@ -1117,9 +1117,68 @@ function containsNestedFormBuilderCollection(node: ts.CallExpression): boolean {
   return found;
 }
 
+/**
+ * Constructors and calls producing something that is emphatically NOT a form, but whose
+ * result is commonly held in a variable named `form`, `control` or `group`.
+ */
+const NON_FORM_INITIALIZERS: ReadonlySet<string> = new Set([
+  'FormData',
+  'URLSearchParams',
+  'Map',
+  'WeakMap',
+  'Set',
+  'Headers',
+]);
+
+/** True for an initializer that cannot possibly be a Reactive Forms object. */
+function isNonFormInitializer(initializer: ts.Expression | undefined): boolean {
+  if (initializer === undefined) return false;
+  const inner = ts.isAsExpression(initializer) ? initializer.expression : initializer;
+
+  if (ts.isNewExpression(inner) && ts.isIdentifier(inner.expression)) {
+    return NON_FORM_INITIALIZERS.has(inner.expression.text);
+  }
+  // document.querySelector('form') is an HTMLFormElement — it has .reset() and .elements,
+  // which collide with the AbstractControl surface.
+  if (ts.isCallExpression(inner) && ts.isPropertyAccessExpression(inner.expression)) {
+    const method = declaredName(inner.expression.name);
+    return method === 'querySelector' || method === 'getElementById';
+  }
+  return false;
+}
+
+/**
+ * True when the NEAREST binding of `name` above this node initialises it to a non-form.
+ *
+ * Form names are collected file-wide and flat, so a `FormGroup` field named `form` binds
+ * that name for every scope in the file — including other classes. A local
+ * `const form = new FormData()` then inherits it, and `form.get('receipt')` is reported as
+ * `AbstractControl.get`. Resolving against the nearest binding is the ordinary scoping rule
+ * and needs only the ancestor chain, which `setParentNodes: true` gives us.
+ */
+function shadowedByNonForm(node: ts.Node, name: string): boolean {
+  let current: ts.Node | undefined = node;
+  while (current !== undefined) {
+    if (ts.isBlock(current) || ts.isSourceFile(current)) {
+      for (const statement of current.statements) {
+        if (!ts.isVariableStatement(statement)) continue;
+        for (const declaration of statement.declarationList.declarations) {
+          if (declaredName(declaration.name) !== name) continue;
+          // Nearest binding wins, whichever way it goes.
+          return isNonFormInitializer(declaration.initializer);
+        }
+      }
+    }
+    current = current.parent;
+  }
+  return false;
+}
+
 /** Matches a bound name used bare (`fb.group()`) or through this (`this.fb.group()`). */
 function isKnownReceiver(receiver: ts.Node, names: ReadonlySet<string>): boolean {
-  if (ts.isIdentifier(receiver)) return names.has(receiver.text);
+  if (ts.isIdentifier(receiver)) {
+    return names.has(receiver.text) && !shadowedByNonForm(receiver, receiver.text);
+  }
   if (
     ts.isPropertyAccessExpression(receiver) &&
     receiver.expression.kind === ts.SyntaxKind.ThisKeyword
