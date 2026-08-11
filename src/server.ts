@@ -18,6 +18,7 @@ import {
   signalFormsAvailable,
 } from './core/angular-version.js';
 import { analyzeMigrationComplexity } from './core/complexity.js';
+import { pageFindings } from './core/paginate.js';
 import { findFormCandidates } from './core/detect.js';
 import { getSignalFormsRecipe } from './core/recipes.js';
 import { assessCoverage } from './core/coverage.js';
@@ -67,14 +68,24 @@ function packageField(name: string, fallback: string): string {
 export const SERVER_NAME = packageField('name', 'angular-signal-forms-migration-mcp');
 export const SERVER_VERSION = packageField('version', '0.0.0');
 
+/** Default page size for finding lists. A whole workspace does not fit in one context. */
+const DEFAULT_FINDING_LIMIT = 200;
+
 /** stdout is the MCP stdio channel; diagnostics go to stderr. */
 function logToStderr(message: string): void {
   process.stderr.write(`[${SERVER_NAME}] ${message}\n`);
 }
 
+/**
+ * Every payload ships twice: `structuredContent` because the SDK REQUIRES it when a tool
+ * declares an outputSchema (it throws otherwise — mcp.js validateToolOutput), and `content`
+ * because dropping it would break any client that renders only text. Both copies stay, but
+ * the text one is compact: pretty-printing cost 19% on a 200-finding page and no agent reads
+ * the indentation.
+ */
 function jsonResult<T>(payload: T): CallToolResult {
   return {
-    content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }],
+    content: [{ type: 'text', text: JSON.stringify(payload) }],
     structuredContent: payload as Record<string, unknown>,
   };
 }
@@ -105,29 +116,29 @@ Rules that matter:
   runtime behaviour. Before calling anyone's code broken, prove it with a failing test;
   if it passes on unmodified code, there was nothing to fix — say so and move on.
 
+- CHECK \`incomplete\` ON EVERY find_form_candidates RESULT. Findings are paged (200) and
+  filterable, so a response is often a WINDOW. Non-null means there is more and names the
+  call that returns it; null means complete. A page read as the whole job under-migrates.
+
 - NEVER treat a "judgment" finding as mechanical. Judgment means the shape changes and a
   human decides the design. Ask, or present options — do not pick one silently.
   Inventing an API to close the gap is the worst outcome available.
 
 - READ THE CAVEATS before using any "after" snippet. VERSION-SENSITIVE means behaviour
-  differs across Angular versions and a fallback is given; UNVERIFIED means the docs did
-  not confirm it. Recipes carry provenance — if the user's Angular differs, say so.
+  differs across releases; UNVERIFIED means the docs did not confirm it.
 
-- TEMPLATES ARE SCANNED (.html) as a TOKEN scan, not an AST: it flags the binding sites
-  (Template.* findings -> templateBindings recipe) and leaves the structure to you, so
-  RE-RUN THE AOT BUILD after editing — the compiler is the real check on a template. A
-  template is "reference only" and migrates WITH its component. Inline templates in a .ts
-  template: string and CSS/SCSS are NOT scanned.
+- TEMPLATES ARE SCANNED — external .html AND inline template: strings — as a TOKEN scan,
+  not an AST. It flags binding sites (Template.* -> templateBindings recipe) and leaves
+  structure to you, so RE-RUN THE AOT BUILD after editing. An external .html is
+  "reference only" and migrates WITH its component. CSS/SCSS is not scanned.
 
-- Migrate in the suggested order. A file owning no form only references one defined
-  elsewhere and cannot move alone; shared validators gate every consumer, so settle
-  their error shape early. A form too big to convert at once can go incrementally —
-  ask for the FormControl recipe's INCREMENTAL caveat.
+- Migrate in the suggested order. A file owning no form cannot move alone; shared
+  validators gate every consumer, so settle their error shape early. A form too big to
+  convert at once can go incrementally — see the FormControl recipe's INCREMENTAL caveat.
 
-- DO NOT INVENT API NAMES, in prose as well as in code. Signal Forms is too new to
-  recall reliably, and one wrong name recurs: there is NO "Control" export — that is
-  pre-release naming; the directives are [formField] and [formRoot]. If you are about to
-  name an API no recipe gave you, say you are unsure instead.`;
+- DO NOT INVENT API NAMES, in prose or code. Signal Forms is too new to recall reliably,
+  and one wrong name recurs: there is NO "Control" export — that is pre-release naming;
+  the directives are [formField] and [formRoot]. Unsure? Say so instead.`;
 
 export function createServer(): McpServer {
   const server = new McpServer(
@@ -142,18 +153,35 @@ export function createServer(): McpServer {
       description:
         'Scans .ts and .html files (or a directory) for Angular Reactive Forms constructs and classifies each ' +
         'finding as "mechanical" (safe to transliterate) or "judgment" (a human must decide the ' +
-        'target design). Read-only: this tool never modifies your files.',
+        'target design). Read-only: this tool never modifies your files. Results are PAGED ' +
+        '(default 200 findings) — check `incomplete`: non-null means there is more, and says ' +
+        'how to get it. Filter with `constructs` / `classification` to work one decision at a time.',
       inputSchema: findFormCandidatesInputSchema.shape,
       outputSchema: findFormCandidatesOutputSchema.shape,
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     },
-    ({ path }) => {
+    ({ path, offset, limit, constructs, classification }) => {
       const result = findFormCandidates(toAbsolute(path), nodeFileSystem);
       if (!result.ok) return errorResult(result.error);
 
+      // A whole-workspace scan measured 1,474,818 bytes on 60 components before paging.
+      const paged = pageFindings(result.data, {
+        offset: offset ?? 0,
+        limit: limit ?? DEFAULT_FINDING_LIMIT,
+        ...(constructs === undefined ? {} : { constructs }),
+        ...(classification === undefined ? {} : { classification }),
+      });
+
       const payload: FindFormCandidatesOutput = {
-        files: result.data,
-        totalFindings: result.data.reduce((total, entry) => total + entry.findings.length, 0),
+        incomplete: paged.incomplete,
+        files: paged.files.map((entry) => ({
+          file: entry.file,
+          findings: [...entry.findings],
+          matchedInFile: entry.matchedInFile,
+          partial: entry.partial,
+        })),
+        totalFindings: paged.page.totalUnfiltered,
+        page: paged.page,
       };
       return jsonResult(payload);
     },

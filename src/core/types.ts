@@ -251,6 +251,32 @@ export const findFormCandidatesInputSchema = z.object({
     .string()
     .min(1)
     .describe('Absolute path to a .ts file or a directory to scan recursively.'),
+  offset: z
+    .number()
+    .int()
+    .nonnegative()
+    .optional()
+    .describe('Index of the first finding to return. Defaults to 0. Page with page.nextOffset.'),
+  limit: z
+    .number()
+    .int()
+    .positive()
+    .max(2000)
+    .optional()
+    .describe(
+      'Maximum findings to return. Defaults to 200. A whole workspace can be far larger than ' +
+        'one context window, so the response is a window and says so when it is.',
+    ),
+  constructs: z
+    .array(z.string().min(1))
+    .optional()
+    .describe(
+      'Return only these construct names (e.g. ["FormArray.push"]). Use it to pull one ' +
+        'decision at a time. Filtering is announced in `incomplete`.',
+    ),
+  classification: classificationSchema
+    .optional()
+    .describe('Return only "mechanical" or only "judgment" findings.'),
 });
 export type FindFormCandidatesInput = z.infer<typeof findFormCandidatesInputSchema>;
 
@@ -272,9 +298,42 @@ export type GetSignalFormsRecipeInput = z.infer<typeof getSignalFormsRecipeInput
  * MCP requires `structuredContent` to be a JSON object, so the findings array is
  * wrapped in `files` rather than returned bare.
  */
+export const pagedFileFindingsSchema = fileFindingsSchema.extend({
+  matchedInFile: z
+    .number()
+    .int()
+    .nonnegative()
+    .describe('Findings in this file matching the filters, before the page window.'),
+  partial: z.boolean().describe('True when `findings` is a slice of this file, not all of it.'),
+});
+
+export const pageInfoSchema = z.object({
+  offset: z.number().int().nonnegative(),
+  limit: z.number().int().positive(),
+  returned: z.number().int().nonnegative(),
+  totalMatched: z.number().int().nonnegative().describe('Matching the filters across the scan.'),
+  totalUnfiltered: z.number().int().nonnegative().describe('Findings in the scan before filters.'),
+  truncated: z.boolean().describe('True when this page is not the whole matched set.'),
+  nextOffset: z.number().int().nonnegative().nullable(),
+});
+
 export const findFormCandidatesOutputSchema = z.object({
-  files: z.array(fileFindingsSchema),
-  totalFindings: z.number().int().nonnegative(),
+  /**
+   * FIRST KEY DELIBERATELY. Non-null means the list below is INCOMPLETE, and names the call
+   * that returns the rest. An agent that reads only the head of a long payload still sees it;
+   * a trailing flag would not survive that. Null means this is the whole picture — nothing
+   * else in the response carries that guarantee.
+   */
+  incomplete: z
+    .string()
+    .nullable()
+    .describe(
+      'Non-null when this response is NOT the full result, with the call that returns the ' +
+        'rest. Null means complete. Never treat a filtered or paged list as the whole job.',
+    ),
+  files: z.array(pagedFileFindingsSchema),
+  totalFindings: z.number().int().nonnegative().describe('Findings in the whole scan, unfiltered.'),
+  page: pageInfoSchema,
 });
 export type FindFormCandidatesOutput = z.infer<typeof findFormCandidatesOutputSchema>;
 
