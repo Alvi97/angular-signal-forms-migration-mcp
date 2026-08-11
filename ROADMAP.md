@@ -124,6 +124,16 @@ against it, rather than handing the agent both variants.
   type resolution. A `FormBuilder` obtained in an unusual way will be missed.
   Building a full `ts.Program` would be authoritative but requires resolving the
   user's tsconfig and node_modules on every call.
+
+  **What this does NOT excuse.** This entry previously covered aliased imports
+  (`import { FormBuilder as FB }`), which it should never have: the alias map is in the
+  import clause of the file already being parsed, and M11 fixed it without a `ts.Program`.
+  Named aliases, inline `template:` strings and destructured controls were all single-file
+  problems filed under a cross-file limitation. What genuinely still needs type resolution is
+  narrower: a form held on a **domain-model object** (`this.section.SectionValidator.controls[i]`),
+  and a form arriving through an **unannotated intermediate defined in another file**
+  (`getForm().get('email')`). Namespace imports (`import * as ng`) and local re-binding
+  (`const FG = FormGroup`) remain out of scope by choice, not by necessity.
 - **`.get()` detection depends on name binding.** `form.get('k')` is only reported when the
   receiver was bound to a form in pass 1 — annotated `: FormGroup` / `: AbstractControl`,
   initialised from `new FormGroup(...)` / `fb.group(...)`, or built by a factory method that
@@ -161,9 +171,40 @@ all verified against the v22 docs. It is a token scan, not an Angular AST — it
 sites and leaves structure to the agent, so the AOT build stays the real check. Templates
 sort as "reference only" and migrate with their component.
 
-## Beyond M7
+**M11 — coverage: the three silent misses (done).** Each of these let a file be *scanned* and
+then under-reported, which is worse than skipping it: the file appears in the report looking
+nearly migrated.
 
-- Optional `ts.Program`-backed "deep" mode for projects that supply a tsconfig path.
-- Inline `template:` string scanning (currently only external `.html` is read).
+| Gap | Before | Now |
+| --- | --- | --- |
+| Named import aliases | `import { FormBuilder as FB, FormGroup as FG }` reported **1 of 5** constructs; three of four test fixtures reported **none** | alias map from the import clause, applied at 15 sites in two matching styles |
+| Inline `template:` | zero `Template.*` findings, ever | scanned with the M7 token scanner, lines offset to the `.ts` file |
+| Destructured controls | destructuring site reported, every use after it missed | bound after the form names are known |
+
+Alias coverage is kept complete by a **differential test** rather than by review: the same
+component, aliased and not, must report identically. Hand-enumeration of the 15 sites
+under-counted while writing the spec and missed four more during implementation — the test
+named each one. Canonicalisation sits at the derivation points (`constructName`,
+`typeReferenceName`) where possible, so a new comparison downstream inherits it.
+
+Templates with `${substitutions}` are skipped deliberately: their text is not the text the
+compiler sees, so any line number after the substitution would be a guess, and a wrong line is
+worse than a missing one. An inline template does not demote its file to "reference only" —
+an external `.html` sorts last because it cannot be migrated without its component, but an
+inline template *is* in its component.
+
+`formStateRead` gained the **NG01902 "Orphan field"** caveat: destructuring the field tree
+typechecks (subfields are real properties on `FieldTree`), so a type-level check calls it safe,
+but the destructured reference is a live view and reading it after its key leaves the model
+throws. Established from the v22 docs plus the shipped guard, not from either alone.
+
+## Beyond M11
+
+- Optional `ts.Program`-backed "deep" mode for projects that supply a tsconfig path. Now
+  scoped to what actually needs it: forms on domain-model objects, and forms arriving through
+  an unannotated intermediate defined in another file.
+- Namespace imports (`import * as ng from '@angular/forms'`) and local re-binding
+  (`const FG = FormGroup`) — out of scope by choice; revisit if a corpus run finds them.
 - Recipe coverage for `FormRecord`, `AbstractControl` subclassing, and cross-field
   validators.
+- Report scale: `limit` / `offset` / `constructs` filters, and the double-emitted payload.
