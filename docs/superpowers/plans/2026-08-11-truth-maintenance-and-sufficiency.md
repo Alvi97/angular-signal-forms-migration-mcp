@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Stop shipping false claims, then make the tool's own classification provably *sufficient* — not merely syntactically correct.
+**Goal:** Stop shipping false claims, then make the tool's own classification provably _sufficient_ — not merely syntactically correct.
 
 **Architecture:** Three shippable milestones, one in flight at a time per `CLAUDE.md` rule 3. **M8** removes every surviving false claim and adds a repo-wide guard so a retraction can never again propagate to code but not prose. **M9** introduces the missing invariant — a finding whose correct action depends on another file cannot be labelled `mechanical` — and fixes the two constructs that violate it. **M10** fixes two detection defects that produce wrong output regardless of recipes. Each milestone ends green on `npm run check` and is committed before the next begins.
 
@@ -26,19 +26,19 @@ Copied from `CLAUDE.md` and `SPEC.md`. Every task's requirements implicitly incl
 
 ## File Structure
 
-| File | Responsibility | Milestone |
-|---|---|---|
-| `test/no-retracted-claims.test.ts` | **new** — guards every tracked `*.md` against retracted claims | M8 |
-| `README.md`, `SPEC.md`, `ROADMAP.md` | remove the fabricated `required()` divergence | M8 |
-| `REVERIFICATION.md` | fix the worked-example pointer and the phantom checklist item | M8 |
-| `src/core/recipes.ts` | correct the `submit()` caveat and the "will not compile" overstatement | M8 |
-| `test/recipes.test.ts` | pin the corrected `submit()` semantics | M8 |
-| `src/core/types.ts` | **new export** — `CROSS_FILE_CONSTRUCTS` | M9 |
-| `test/sufficiency.test.ts` | **new** — the cross-file invariant | M9 |
-| `src/core/detect-template.ts` | reclassify `Template.nativeAttribute` | M9 |
-| `src/core/detect.ts` | move `hasError` out of the writes table; add negative name binding | M9, M10 |
-| `src/core/angular-version.ts`, `src/core/coverage.ts` | Windows-safe `parentOf` | M10 |
-| `test/angular-version.test.ts`, `test/coverage.test.ts` | backslash-path coverage | M10 |
+| File                                                    | Responsibility                                                         | Milestone |
+| ------------------------------------------------------- | ---------------------------------------------------------------------- | --------- |
+| `test/no-retracted-claims.test.ts`                      | **new** — guards every tracked `*.md` against retracted claims         | M8        |
+| `README.md`, `SPEC.md`, `ROADMAP.md`                    | remove the fabricated `required()` divergence                          | M8        |
+| `REVERIFICATION.md`                                     | fix the worked-example pointer and the phantom checklist item          | M8        |
+| `src/core/recipes.ts`                                   | correct the `submit()` caveat and the "will not compile" overstatement | M8        |
+| `test/recipes.test.ts`                                  | pin the corrected `submit()` semantics                                 | M8        |
+| `src/core/types.ts`                                     | **new export** — `CROSS_FILE_CONSTRUCTS`                               | M9        |
+| `test/sufficiency.test.ts`                              | **new** — the cross-file invariant                                     | M9        |
+| `src/core/detect-template.ts`                           | reclassify `Template.nativeAttribute`                                  | M9        |
+| `src/core/detect.ts`                                    | move `hasError` out of the writes table; add negative name binding     | M9, M10   |
+| `src/core/angular-version.ts`, `src/core/coverage.ts`   | Windows-safe `parentOf`                                                | M10       |
+| `test/angular-version.test.ts`, `test/coverage.test.ts` | backslash-path coverage                                                | M10       |
 
 ---
 
@@ -51,9 +51,11 @@ Highest severity, lowest effort. The retracted `required()` claim survives verba
 The existing guard (`test/shared-caveat-sources.test.ts:56-70`) greps **recipe caveats only**. That is the smaller half of the surface; the prose is what ships to npm and what governs future sessions. This task widens the corpus.
 
 **Files:**
+
 - Create: `test/no-retracted-claims.test.ts`
 
 **Interfaces:**
+
 - Consumes: nothing — reads tracked markdown directly from disk.
 - Produces: nothing importable. This is a guard test.
 
@@ -94,7 +96,8 @@ const RETRACTED_CLAIMS: ReadonlyArray<{ readonly name: string; readonly pattern:
   },
   {
     name: 'requiredTrue is version-sensitive',
-    pattern: /requiredTrue`? (?:between|is) a (?:one-line |mechanical )?rename and a (?:judgment )?rewrite/i,
+    pattern:
+      /requiredTrue`? (?:between|is) a (?:one-line |mechanical )?rename and a (?:judgment )?rewrite/i,
   },
 ];
 
@@ -133,6 +136,7 @@ The test is red by design. Task 2 turns it green.
 ### Task 2: Delete the fabricated claim from the three documents
 
 **Files:**
+
 - Modify: `README.md:65-66`
 - Modify: `SPEC.md:31-33`
 - Modify: `ROADMAP.md:100-105`
@@ -159,10 +163,10 @@ Replace with a difference that is backed by shipped declarations:
 `SPEC.md:31-33` sits inside the MANDATORY rule 6 ("Flag version-sensitive behaviour") and is the mechanism by which the error entered the recipes. Replace:
 
 ```markdown
-   in its `caveats` and give the version-independent fallback. Known example: `disabled()`
-   took a bare callback on v21; v22 added `disabled(path, { when: cb })` and marked the bare
-   callback `@deprecated` rather than removing it. Confirm any such claim by diffing the
-   shipped `.d.ts` across both versions — never by comparing the two documentation pages.
+in its `caveats` and give the version-independent fallback. Known example: `disabled()`
+took a bare callback on v21; v22 added `disabled(path, { when: cb })` and marked the bare
+callback `@deprecated` rather than removing it. Confirm any such claim by diffing the
+shipped `.d.ts` across both versions — never by comparing the two documentation pages.
 ```
 
 - [ ] **Step 3: Rewrite the ROADMAP version-sensitivity section**
@@ -210,10 +214,12 @@ backed by the shipped overloads."
 `src/core/recipes.ts:1140-1141` claims `submit()` waits for pending async validation. The shipped implementation does not: `shouldRunAction` is synchronous and returns `!untracked(node.invalid)`, and `invalid()` is false while status is `'unknown'`. The corpus already contradicts itself — `recipes.ts:1446-1447` states the correct behaviour.
 
 **Files:**
+
 - Modify: `src/core/recipes.ts:1140-1141`
 - Modify: `test/recipes.test.ts` (append a describe block)
 
 **Interfaces:**
+
 - Consumes: `getSignalFormsRecipe(construct: string)` from `src/core/recipes.js`.
 - Produces: no new exports.
 
@@ -329,6 +335,7 @@ declares the bare-callback overload, deprecated."
 `REVERIFICATION.md:92` names `Validators.requiredTrue` as the worked example of a version-sensitive recipe — but `test/provenance.test.ts:80` now asserts that construct is **not** flagged version-sensitive. `:107` instructs the reader to update a "BEHAVIOUR THAT CHANGED" list that does not exist in `recipes.ts` (verified: `grep` finds it only in `REVERIFICATION.md`).
 
 **Files:**
+
 - Modify: `REVERIFICATION.md:92`, `REVERIFICATION.md:107`
 
 - [ ] **Step 1: Repoint the worked example**
@@ -351,7 +358,7 @@ Replace line 107:
 
 `CLAUDE.md` rule 2 requires diffing shipped source for version claims, but this procedure never says to. Insert before the "Verify" section:
 
-```markdown
+````markdown
 ### 5b. Establish version claims from source, not from doc pages
 
 Before writing any `VERSION-SENSITIVE` caveat:
@@ -359,18 +366,20 @@ Before writing any `VERSION-SENSITIVE` caveat:
 ```bash
 npm pack @angular/forms@21 && npm pack @angular/forms@22
 ```
+````
 
 Diff the relevant symbol in the extracted `types/` and `fesm2022/` trees. A sentence present
 in one version's guide and absent from the other's is **not** evidence of a behaviour change
 — that is exactly how the retracted `required()` claim was manufactured and how it survived
 two audits.
-```
+
+````
 
 - [ ] **Step 4: Run the guard and full check**
 
 ```bash
 npx vitest run test/no-retracted-claims.test.ts && npm run check
-```
+````
 
 Expected: green.
 
@@ -398,18 +407,20 @@ Expected: all green, four commits. **Stop here for review before starting M9** (
 
 ---
 
-# M9 — Sufficiency: mechanical must mean *complete*
+# M9 — Sufficiency: mechanical must mean _complete_
 
 The structural defect. Every recipe symbol is correct and the compile harness is green, and the tool still emits advice that silently deletes a validator. The missing invariant: **a finding whose correct action depends on a fact in another file cannot be `mechanical`**, because the agent applying it sees only this file.
 
 ### Task 5: Introduce the cross-file invariant
 
 **Files:**
+
 - Modify: `src/core/types.ts` (add export)
 - Create: `test/sufficiency.test.ts`
 - Modify: `src/core/detect-template.ts:204-213`
 
 **Interfaces:**
+
 - Produces: `export const CROSS_FILE_CONSTRUCTS: ReadonlySet<string>` from `src/core/types.js`.
 - Consumes: `findFormCandidates(path, fs)` from `src/core/detect.js`, `memoryFs` from `test/helpers/memory-fs.js`.
 
@@ -558,11 +569,13 @@ the next construct of this shape fails a test instead of a migration."
 `hasError` is a **read**, misfiled in `CONTROL_WRITES_MECHANICAL` (`src/core/detect.ts:167-181`), and its translation is not a rename: it needs `FieldState.getError(kind)` plus the error-key mapping the project already pins in `test/error-kinds.test.ts`.
 
 **Files:**
+
 - Modify: `src/core/detect.ts:167-181`
 - Modify: `src/core/recipes.ts` (`formStateRead` caveats)
 - Modify: `test/state-write-advice.test.ts`
 
 **Interfaces:**
+
 - Consumes: the existing `CONTROL_READS` / `CONTROL_WRITES_MECHANICAL` sets in `detect.ts`.
 - Produces: no new exports; `AbstractControl.hasError` keeps its construct name and continues to resolve to a recipe.
 
@@ -686,11 +699,13 @@ Two defects that produce wrong output no matter how good the recipes are.
 `src/core/angular-version.ts:59-63` and `src/core/coverage.ts:29-32` both split on `'/'` only, while `toAbsolute` is `path.resolve` (`src/infra/node-fs.ts:39`), which emits backslashes on win32. Consequence: version detection returns `{known:false}` on every Windows project, so the **v21 blocking gate silently disappears** — the one thing `SERVER_INSTRUCTIONS` tells the agent to check first. `src/core/detect.ts:63-66` already does this correctly.
 
 **Files:**
+
 - Modify: `src/core/angular-version.ts:59-63`
 - Modify: `src/core/coverage.ts:29-32`
 - Modify: `test/angular-version.test.ts`
 
 **Interfaces:**
+
 - Consumes: nothing new.
 - Produces: no signature change — `parentOf(path: string): string | undefined` in both files.
 
@@ -771,10 +786,12 @@ already handled both separators."
 Full scope analysis is out of proportion. This task adds **negative binding**: a local declaration initialising a name to a known non-form value suppresses that name within the declaration's enclosing function.
 
 **Files:**
+
 - Modify: `src/core/detect.ts` (name-binding pass, ~`:313-325`)
 - Create: `test/detect-shadowing.test.ts`
 
 **Interfaces:**
+
 - Consumes: `ts.SourceFile` walk already present in `collectNames`.
 - Produces: internal only — a `suppressedRanges: Map<string, Array<[number, number]>>` threaded alongside the existing name set, and a helper `isSuppressed(name: string, pos: number): boolean`.
 
@@ -905,10 +922,10 @@ Expected: the new file passes and no existing test regresses. If a corpus test r
 `ROADMAP.md:126-127` currently asserts the import gate "keeps `params.get()`, `formData.get()` and `map.get()` out of the report (verified against a real workspace: 38 true positives, 0 false positives)." Rewrite as a dated measurement rather than a property:
 
 ```markdown
-  out of the report. Measured on a 50-repo corpus (2026-07): 38 true positives, 0 false
-  positives on that corpus. A local `const form = new FormData()` shadowing a `FormGroup`
-  field DID escape this until M10 added negative binding for known non-form initialisers;
-  names bound through an unlisted constructor can still shadow.
+out of the report. Measured on a 50-repo corpus (2026-07): 38 true positives, 0 false
+positives on that corpus. A local `const form = new FormData()` shadowing a `FormGroup`
+field DID escape this until M10 added negative binding for known non-form initialisers;
+names bound through an unlisted constructor can still shadow.
 ```
 
 - [ ] **Step 8: Run the full check and commit**
@@ -933,7 +950,7 @@ than a property of the design."
 
 These are independent subsystems. Each needs its own plan; do not fold them into M8–M10.
 
-**M11 — Output scale and agent ergonomics.** `find_form_candidates` returned 93,922 bytes for a 7-file fixture, and `jsonResult` (`src/server.ts:75`) emits every payload twice (text *and* `structuredContent`). Scope: `limit`/`offset`/`constructs` on the three scanning input schemas, stop double-emitting, group judgment findings by construct so each reason prints once, cap the suggested-order table. Blocked on nothing; highest value per hour after M10.
+**M11 — Output scale and agent ergonomics.** `find_form_candidates` returned 93,922 bytes for a 7-file fixture, and `jsonResult` (`src/server.ts:75`) emits every payload twice (text _and_ `structuredContent`). Scope: `limit`/`offset`/`constructs` on the three scanning input schemas, stop double-emitting, group judgment findings by construct so each reason prints once, cap the suggested-order table. Blocked on nothing; highest value per hour after M10.
 
 **M12 — Behavioural verification harness.** The compile harness proves shape, not runtime. Probed this session: `form()` runs headless once `@angular/compiler` is present and `APP_ID` is provided, then requires `DestroyRef` + `ChangeDetectionScheduler` — so the realistic route is vitest + a DOM shim + `TestBed` in `verify/`, roughly half a day. Worth it for the ~6 recipes making runtime claims (`submit`, `validateAsync`, `debounce`, `disabled`, `reset`, submission errors). This is what would have caught Task 3 by observation instead of by reading minified source.
 

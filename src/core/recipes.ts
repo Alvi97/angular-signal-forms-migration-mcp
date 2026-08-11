@@ -1146,7 +1146,7 @@ export class Registration {
           '`shouldRunAction`, which is synchronous: by default it tests `!invalid()`, and ' +
           'invalid() is false while a request is in flight, so the action runs. Nothing ' +
           'awaits validation. If the server answer must land first, await it inside the ' +
-          "action, or guard on `pending()` before calling submit(). Passing " +
+          'action, or guard on `pending()` before calling submit(). Passing ' +
           "`ignoreValidators: 'none'` tests `valid()` instead, which REFUSES to submit " +
           'while pending (calling onInvalid) rather than waiting for it.',
       ],
@@ -1461,7 +1461,7 @@ export class LoginComponent {
           'returned errors. Concurrent submits are refused: a second call while one is in ' +
           'flight returns false immediately without running the action.',
         'By default a pending async validator does NOT block submission: shouldRunAction ' +
-          "tests `!invalid()`, and pending is neither valid nor invalid. Passing " +
+          'tests `!invalid()`, and pending is neither valid nor invalid. Passing ' +
           "`ignoreValidators: 'none'` switches it to `valid()`, which refuses the submit " +
           'while a check is in flight and calls onInvalid — it does not wait for the answer.',
         'The FormRoot directive on the <form> element calls submit() for you, sets novalidate ' +
