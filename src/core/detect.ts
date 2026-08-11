@@ -169,13 +169,19 @@ const CONTROL_WRITES_MECHANICAL: ReadonlySet<string> = new Set([
   'patchValue',
   'reset',
   'getRawValue',
-  'hasError',
   // These exist on Signal Forms field state (verified against v22). markAllAsTouched maps to
   // markAsTouched(), which covers descendants by default, so it's a rename.
   'markAsTouched',
   'markAsDirty',
   'markAllAsTouched',
 ]);
+
+/**
+ * Predicates read off a control. These are CALLS, so they arrive through the same handler as
+ * the writes, but they read state rather than change it and their translation is not a
+ * rename: the argument is a Signal Forms error KIND, not the old Reactive error key.
+ */
+const CONTROL_READ_CALLS: ReadonlySet<string> = new Set(['hasError']);
 
 /**
  * Imperative APIs with NO Signal Forms counterpart. State is derived from rules, so these
@@ -758,7 +764,8 @@ function collectFromControlApi(
   const method = declaredName(callee.name);
   if (method === undefined) return;
 
-  const mechanical = CONTROL_WRITES_MECHANICAL.has(method);
+  const read = CONTROL_READ_CALLS.has(method);
+  const mechanical = read || CONTROL_WRITES_MECHANICAL.has(method);
   const judgment = CONTROL_WRITES_JUDGMENT.has(method);
   if (!mechanical && !judgment) return;
   if (!isFormDerivedReceiver(callee.expression, formNames)) return;
@@ -767,12 +774,27 @@ function collectFromControlApi(
     construct: `AbstractControl.${method}`,
     node,
     classification: mechanical ? 'mechanical' : 'judgment',
-    reason: mechanical
-      ? mechanicalWriteReason(method)
-      : `${method}() has no Signal Forms counterpart. Interaction and validity state are ` +
-        'DERIVED from schema rules and submission, not set imperatively, so this call is ' +
-        'replaced by a rule (disabled/applyWhen), by submit(), or removed entirely.',
+    reason: read
+      ? readCallReason(method)
+      : mechanical
+        ? mechanicalWriteReason(method)
+        : `${method}() has no Signal Forms counterpart. Interaction and validity state are ` +
+          'DERIVED from schema rules and submission, not set imperatively, so this call is ' +
+          'replaced by a rule (disabled/applyWhen), by submit(), or removed entirely.',
   });
+}
+
+/** The reason string for a predicate read off a control. */
+function readCallReason(method: string): string {
+  if (method === 'hasError') {
+    return (
+      'hasError(key) reads state, it does not write. It becomes ' +
+      '`f().getError(kind) !== undefined` on field state. The argument is a KIND, not the ' +
+      'old error key: `minlength` became `minLength` and `maxlength` became `maxLength`, so ' +
+      'a transliterated string compiles and silently never matches.'
+    );
+  }
+  return `${method}() reads state off the form and becomes a field-state signal read.`;
 }
 
 /** The reason string for a mechanical write; reset() and markAllAsTouched() carry extra notes. */

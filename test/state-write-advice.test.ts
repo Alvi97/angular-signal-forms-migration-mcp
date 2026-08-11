@@ -97,3 +97,39 @@ describe('markAllAsTouched is a rename, and the advice says so once', () => {
     expect(classify('markAsPristine')).toBe('judgment');
   });
 });
+
+/**
+ * hasError sat in CONTROL_WRITES_MECHANICAL, so a predicate got value-write advice ("writes
+ * through the form object... value writes go to the model") and said nothing about the key
+ * rename. Signal Forms exposes FieldState.getError(kind) — verified against the shipped
+ * declarations (_structure-chunk.d.ts:471, interface at :430); the docs search index returns
+ * only the Reactive Forms getError for that name, so this could not have come from the docs.
+ */
+describe('hasError is advised as a read, with the kind mapping', () => {
+  it('resolves to the read recipe, not the write recipe', () => {
+    const recipe = getSignalFormsRecipe('AbstractControl.hasError');
+    expect(recipe.found).toBe(true);
+    if (!recipe.found) return;
+    expect(recipe.construct).toBe('formStateRead');
+  });
+
+  it('names getError and warns that the argument is a kind, not the old key', () => {
+    const text = caveats('AbstractControl.hasError');
+    expect(text).toMatch(/getError\(/);
+    expect(text).toMatch(/kind/i);
+    expect(text).toMatch(/minLength/);
+  });
+
+  it('does not describe a predicate as writing through the form object', () => {
+    const findings = detectInSource(
+      '/a.ts',
+      `import { FormGroup } from '@angular/forms';
+       declare const form: FormGroup;
+       const bad = form.hasError('email');`,
+    );
+    const finding = findings.find((f) => f.construct === 'AbstractControl.hasError');
+    expect(finding).toBeDefined();
+    expect(finding?.reason).not.toMatch(/value writes go to the model/);
+    expect(finding?.reason).toMatch(/getError/);
+  });
+});

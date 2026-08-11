@@ -1216,6 +1216,11 @@ readonly showWarning = computed(() => this.f().dirty() && this.f().touched());`,
           'reactive context (e.g. computed or effect)", and no Angular guide mentions ' +
           'getError() at all — every documented example iterates `errors()`. Templates cannot ' +
           'contain arrow functions, so the documented alternative is a computed() index.',
+        '`control.hasError(key)` becomes `f.field().getError(kind) !== undefined`. It is a ' +
+          'READ, not a write — do not migrate it with setValue/patchValue. The argument is ' +
+          'an error KIND, not the old key: `minlength` became `minLength` and `maxlength` ' +
+          'became `maxLength`, so a transliterated `hasError("minlength")` compiles and ' +
+          'silently never matches.',
       ],
       sources: [
         DOCS.essentials,
@@ -2234,7 +2239,7 @@ const ALIASES: ReadonlyMap<string, string> = new Map([
   ['abstractcontrol.reset', 'formStateWrite'],
   ['abstractcontrol.defaultvalue', 'formStateWrite'],
   ['abstractcontrol.getrawvalue', 'formStateWrite'],
-  ['abstractcontrol.haserror', 'formStateWrite'],
+  ['abstractcontrol.haserror', 'formStateRead'],
   ['abstractcontrol.markastouched', 'formStateWrite'],
   ['abstractcontrol.markallastouched', 'formStateWrite'],
   ['abstractcontrol.markasuntouched', 'formStateWrite'],
