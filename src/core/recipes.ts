@@ -130,7 +130,10 @@ function nativeAttribute(attribute: string): string {
     `the '${attribute}' attribute is not allowed on nodes using the '[formField]' directive". ` +
     'There is no angular.dev/errors/NG8022 page to cite; the message was read out of ' +
     '@angular/compiler-cli 22.0.7 (FORM_FIELD_UNSUPPORTED_BINDING = 8022). Delete the ' +
-    'hand-written attribute — the rule emits it, so nothing is lost. VERSION-SENSITIVE ' +
+    'hand-written attribute ONLY IF a matching schema rule exists or you add one — the rule ' +
+    'emits the attribute, but if the attribute was the ONLY statement of the constraint ' +
+    'then deleting it drops the validation silently. The template cannot tell which case ' +
+    'you are in; check the component. VERSION-SENSITIVE ' +
     "wording: v21's compiler names the directive '[field]' in the same message, because the " +
     'directive was renamed to [formField] in v22.'
   );

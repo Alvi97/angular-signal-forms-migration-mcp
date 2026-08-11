@@ -125,6 +125,24 @@ export type Construct = (typeof DETECTED_CONSTRUCTS)[number];
 export const classificationSchema = z.enum(['mechanical', 'judgment']);
 export type Classification = z.infer<typeof classificationSchema>;
 
+/**
+ * Constructs whose correct action cannot be decided from the file they appear in.
+ *
+ * `mechanical` is a claim about SUFFICIENCY, not just about syntax: it promises that
+ * applying the advice finishes the job. The agent applying a finding sees only that file,
+ * so advice depending on a fact stored elsewhere cannot be sufficient — however small the
+ * edit looks. Anything listed here is `judgment` by construction, and `test/sufficiency`
+ * enforces it.
+ *
+ * `Template.nativeAttribute` is the motivating case. A hardcoded `minlength="8"` on a
+ * form-bound input must be deleted when the component declares a matching rule, and must
+ * NOT be deleted when the attribute is the only place the constraint is stated — deleting
+ * it there silently drops the validation. Nothing in the template distinguishes the two.
+ * Every symbol in the old advice was correct and the compile harness was green, which is
+ * exactly the failure a compile harness cannot see.
+ */
+export const CROSS_FILE_CONSTRUCTS: ReadonlySet<string> = new Set(['Template.nativeAttribute']);
+
 export const findingSchema = z.object({
   /** The Reactive Forms construct found, e.g. `Validators.required`. */
   construct: z.string(),

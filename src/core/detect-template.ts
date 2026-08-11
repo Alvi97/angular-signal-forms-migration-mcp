@@ -205,11 +205,16 @@ function collectNativeAttributeCollision(
       construct: 'Template.nativeAttribute',
       line: lineAt(attr.pos),
       snippet: snippetAt(attr.pos),
-      classification: 'mechanical',
+      // Judgment, not mechanical: whether deleting is safe depends on the COMPONENT, which
+      // is a different file. See CROSS_FILE_CONSTRUCTS in types.ts.
+      classification: 'judgment',
       reason:
         `A hardcoded \`${name}\` on a form-bound element. Once this converts to ` +
         '`[formField]`, the directive sets that attribute itself and a v22 AOT build rejects ' +
-        'the hand-written copy (NG8022). Delete the attribute — the rule emits it.',
+        `the hand-written copy (NG8022). Delete it ONLY IF the component declares a matching ` +
+        `rule — if this attribute is the only place the \`${name}\` constraint is stated, ` +
+        "deleting it silently drops the validation. Check the control's validators in the " +
+        'component first, and add the schema rule there if it is missing.',
       definesForm: false,
     });
   }

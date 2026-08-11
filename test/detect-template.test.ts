@@ -103,8 +103,11 @@ describe('the silent error-key rename', () => {
 describe('the NG8022 native-attribute collision', () => {
   it('flags a hardcoded maxlength on a form-bound input', () => {
     const finding = find('<input formControlName="otp" maxlength="6">', 'Template.nativeAttribute');
-    expect(finding?.classification).toBe('mechanical');
+    // Judgment, not mechanical: the attribute may be the ONLY statement of the constraint,
+    // and the template cannot tell. Deciding needs the component. See sufficiency.test.ts.
+    expect(finding?.classification).toBe('judgment');
     expect(finding?.reason).toMatch(/NG8022/);
+    expect(finding?.reason).toMatch(/ONLY IF/);
   });
 
   it('leaves maxlength alone on an input that is NOT form-bound', () => {
