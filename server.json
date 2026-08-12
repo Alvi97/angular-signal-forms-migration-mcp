@@ -6,12 +6,12 @@
     "url": "https://github.com/Alvi97/angular-signal-forms-migration-mcp",
     "source": "github"
   },
-  "version": "0.8.0",
+  "version": "0.8.1",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "angular-signal-forms-migration-mcp",
-      "version": "0.8.0",
+      "version": "0.8.1",
       "transport": {
         "type": "stdio"
       }
