@@ -184,6 +184,12 @@ Forms construct it finds.
 { "path": "/abs/path/to/src/app" }
 ```
 
+Results are **paged** — 200 findings by default — and filterable with `constructs` and
+`classification`, so you can pull one decision at a time. **Always check `incomplete`:** it is
+non-null whenever a window or a filter narrowed the result, and names the call that returns the
+rest; `null` means this is the whole picture. A whole workspace does not fit in one context —
+before paging, a 60-component scan returned a 1.4 MB frame.
+
 Returns one entry per file, each finding carrying `construct`, `line`, `snippet`, a
 `classification` of `"mechanical"` or `"judgment"`, and the `reason` for that call.
 Template findings use a `Template.` prefix (`Template.formControlName`, …) and resolve to
@@ -236,6 +242,29 @@ applies to your codebase (it stays silent when none does).
 
 It returns the markdown as a **string**. It does not write a file — saving it is your
 decision, not the server's.
+
+### `verify_migration`
+
+Reads code you have **already migrated** and reports Signal Forms traps that _compile and are
+still wrong_.
+
+```jsonc
+{ "path": "/abs/path/to/src/app/checkout.component.ts" }
+```
+
+Run it after `tsc`, not instead of it — anything the compiler already reports is deliberately
+not repeated. What it covers is the gap: `TS2774` catches `if (f().invalid)` but not
+`!f().invalid`, `while (…)`, `!!…`, `|| false`, or template interpolation. It also flags the
+v21 rule shape that v22 keeps as `@deprecated` (so the build stays quiet), pre-release API
+names, an `AbstractControl` left inside a `form()` model (NG01907), and Reactive Forms imports
+left behind — downgraded to `info` when the compat layer is genuinely in use.
+
+Every finding carries the shipped `file:line` that backs it. The response always includes
+`checksSkipped`: `droppedConstraint` cannot be decided from the migrated file — a field with no
+rule looks exactly like a field that never needed one — so it is **refused rather than
+guessed**, with the reason. Silence would read as a pass.
+
+It proves the **absence of known defects**, never correctness.
 
 ### `get_angular_upgrade_plan`
 
@@ -303,7 +332,7 @@ core functions to the protocol.
 
 ## Status
 
-Feature-complete through M7: five tools ship, with doc-verified recipes covering basic
+Feature-complete through M15: six tools ship, with doc-verified recipes covering basic
 constructs, arrays, runtime shape mutation, async validators, custom controls, the three
 RxJS stream tiers, reading/writing form state, submission, model-shape constraints, CSS
 status classes, spec-file migration, and the `.html` template layer (bindings, the

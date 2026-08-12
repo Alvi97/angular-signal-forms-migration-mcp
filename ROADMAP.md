@@ -90,6 +90,52 @@ What the harness proved that documentation alone could not:
 - Deliberately injecting the historical `Control`-instead-of-`FormField` mistake makes the
   harness fail with `TS2305`, which is what makes a green run mean something.
 
+**M12 — scale.** `find_form_candidates` returned a **1,474,818-byte frame** on a
+60-component workspace, measured over real stdio. A tool whose single response cannot fit in
+the caller's context is not usable, however correct it is. Findings are now paged (200 by
+default) and filterable by `constructs` / `classification`; the same call returns 191,071
+bytes, and a targeted query 8,395. The judgment section groups by `(construct, reason)` rather
+than repeating a paragraph per site: 385,302 chars to 24,622 on that fixture, losslessly.
+
+The rule the design serves is **silence must mean complete**. `incomplete` is the first key,
+non-null whenever a window OR a filter narrowed the result, and it names the call that returns
+the rest. Two bugs the tests caught: an offset past the end reported complete, and `truncated`
+conflated "not the whole set" with "has a next page".
+
+**M13 — `verify_migration`.** Every other tool reads the BEFORE state. This one reads what the
+agent produced, which is the only way "mechanical" becomes a checkable promise rather than an
+assertion. Narrow on purpose: it checks only what **compiles and is still wrong**, because a
+tool run after `tsc` that repeats `tsc` is noise. That rejected the obvious headline check —
+a general `f.invalid` detector is unnecessary, since `FieldTree` maps only the model's keys
+and the build already reports `TS2339`. What ships covers the gap TS2774 leaves: negation,
+`while`, `!!`, `|| false`, and template interpolation.
+
+`droppedConstraint` is **refused, not guessed**, and ships in `checksSkipped` with the reason.
+The M9 case leaves no trace in the migrated file — a field with no rule is indistinguishable
+from the many that never needed one — and an empty result would otherwise read as a pass.
+
+**M14 — the prose layer.** `upgrade-report.ts` produced an entire tool's payload with zero
+tests. Two false claims fixed: `windows` reported "(you answered)" for a question never asked
+(it can never be inferred — package.json says nothing about anyone's OS), and "N step(s) were
+EXCLUDED" implied flipping the option returns N steps, when v8→v9 tags 3 and returns 2.
+`src/server.ts` gained an entrypoint guard so importing it starts no transport, and
+`format:check` now runs in `npm run check` — it had been red on 8 files and never run by CI.
+
+**M15 — Tier B recipes.** Three constructs, each with the detector that makes it reachable:
+
+| construct         | measured before                                                          | now                                                                  |
+| ----------------- | ------------------------------------------------------------------------ | -------------------------------------------------------------------- |
+| `groupValidator`  | an imported cross-field validator gave 2 findings, **0 judgment**        | reported wherever the validator lives, pinned by a differential test |
+| `FormRecord`      | absent from `CONTROL_TYPES`, so 3 findings and **0 judgment** end to end | 9 findings; `Record<string, T>` + `applyEach`                        |
+| `controlSubclass` | undetected                                                               | judgment, cross-file, split into four destinations                   |
+
+Each recipe states its epistemic status. `applyEach` on a record is real API applied in a way
+angular.dev never demonstrates, and says so; the controlSubclass member-to-destination mapping
+is labelled NOT DOCUMENTED. One shipped falsehood was found while verifying: the
+customValidator recipe named a `field` member on `FieldContext` that does not exist — copied
+from the v22 guide's own table, which is CLAUDE.md rule 2 arriving through prose instead of a
+version diff.
+
 ### Still deferred
 
 | Item                                            | Target  | Note                                                                                                                                                                                              |
