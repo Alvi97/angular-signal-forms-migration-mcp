@@ -19,6 +19,7 @@ import {
 } from './core/angular-version.js';
 import { analyzeMigrationComplexity } from './core/complexity.js';
 import { pageFindings } from './core/paginate.js';
+import { ALWAYS_SKIPPED, VERIFY_DISCLAIMER, verifyMigration } from './core/verify.js';
 import { findFormCandidates } from './core/detect.js';
 import { getSignalFormsRecipe } from './core/recipes.js';
 import { assessCoverage } from './core/coverage.js';
@@ -41,6 +42,10 @@ import {
   getMigrationReportInputSchema,
   getMigrationReportOutputSchema,
   analyzeMigrationComplexityOutputSchema,
+  verifyMigrationInputSchema,
+  verifyMigrationOutputSchema,
+  VERIFY_CHECKS,
+  type VerifyMigrationOutput,
   type FindFormCandidatesOutput,
   type GetSignalFormsRecipeOutput,
 } from './core/types.js';
@@ -112,33 +117,79 @@ Rules that matter:
   too old for @angular/forms/signals and NO recipe compiles — use
   get_angular_upgrade_plan instead.
 
-- A FINDING IS A SHAPE MATCH, NOT A PROVEN DEFECT. This parses text and cannot see
-  runtime behaviour. Before calling anyone's code broken, prove it with a failing test;
-  if it passes on unmodified code, there was nothing to fix — say so and move on.
+- A FINDING IS A SHAPE MATCH, NOT A PROVEN DEFECT. Before calling code broken, prove it
+  with a failing test; if it passes on unmodified code there was nothing to fix.
 
 - CHECK \`incomplete\` ON EVERY find_form_candidates RESULT. Findings are paged (200) and
   filterable, so a response is often a WINDOW. Non-null means there is more and names the
   call that returns it; null means complete. A page read as the whole job under-migrates.
 
-- NEVER treat a "judgment" finding as mechanical. Judgment means the shape changes and a
-  human decides the design. Ask, or present options — do not pick one silently.
-  Inventing an API to close the gap is the worst outcome available.
+- NEVER treat a "judgment" finding as mechanical. The shape changes and a human decides
+  the design. Ask, or present options — inventing an API to close the gap is the worst
+  outcome available.
 
 - READ THE CAVEATS before using any "after" snippet. VERSION-SENSITIVE means behaviour
   differs across releases; UNVERIFIED means the docs did not confirm it.
 
 - TEMPLATES ARE SCANNED — external .html AND inline template: strings — as a TOKEN scan,
-  not an AST. It flags binding sites (Template.* -> templateBindings recipe) and leaves
-  structure to you, so RE-RUN THE AOT BUILD after editing. An external .html is
-  "reference only" and migrates WITH its component. CSS/SCSS is not scanned.
+  not an AST (Template.* -> templateBindings recipe), so RE-RUN THE AOT BUILD after
+  editing. An external .html is "reference only" and migrates WITH its component.
 
 - Migrate in the suggested order. A file owning no form cannot move alone; shared
-  validators gate every consumer, so settle their error shape early. A form too big to
-  convert at once can go incrementally — see the FormControl recipe's INCREMENTAL caveat.
+  validators gate every consumer, so settle their error shape early.
+
+- AFTER MIGRATING A FILE, run verify_migration on it — it reports traps that COMPILE and
+  are still wrong, so run it after tsc. It proves the ABSENCE OF KNOWN DEFECTS, never
+  correctness; read checksSkipped for what it could not check.
 
 - DO NOT INVENT API NAMES, in prose or code. Signal Forms is too new to recall reliably,
   and one wrong name recurs: there is NO "Control" export — that is pre-release naming;
   the directives are [formField] and [formRoot]. Unsure? Say so instead.`;
+
+/**
+ * Reads every scannable `.ts` under `root`, so `verifyMigration` can stay pure. Mirrors the
+ * detector's traversal policy rather than inventing a second one.
+ */
+function collectSourceTexts(
+  root: string,
+): { ok: true; data: { file: string; text: string }[] } | { ok: false; error: string } {
+  if (!nodeFileSystem.exists(root)) return { ok: false, error: `Path does not exist: ${root}` };
+
+  const out: { file: string; text: string }[] = [];
+  const walk = (dir: string): void => {
+    for (const entry of nodeFileSystem.readDir(dir)) {
+      if (nodeFileSystem.isDirectory(entry)) {
+        const name = entry.split(/[\\/]/).pop() ?? '';
+        if (SKIPPED_VERIFY_DIRS.has(name)) continue;
+        walk(entry);
+        continue;
+      }
+      if (!entry.endsWith('.ts') || entry.endsWith('.d.ts')) continue;
+      try {
+        out.push({ file: entry, text: nodeFileSystem.readFile(entry) });
+      } catch {
+        // Unreadable single file: skip it and keep going, as the detector does.
+      }
+    }
+  };
+
+  try {
+    if (nodeFileSystem.isDirectory(root)) walk(root);
+    else out.push({ file: root, text: nodeFileSystem.readFile(root) });
+  } catch (cause) {
+    return { ok: false, error: `Failed to read ${root}: ${String(cause)}` };
+  }
+  return { ok: true, data: out };
+}
+
+const SKIPPED_VERIFY_DIRS: ReadonlySet<string> = new Set([
+  'node_modules',
+  'dist',
+  '.angular',
+  '.git',
+  'out-tsc',
+  'coverage',
+]);
 
 export function createServer(): McpServer {
   const server = new McpServer(
@@ -371,6 +422,45 @@ export function createServer(): McpServer {
     },
   );
 
+  server.registerTool(
+    'verify_migration',
+    {
+      title: 'Verify an already-migrated Signal Forms file',
+      description:
+        'Reads code you have ALREADY migrated and reports Signal Forms traps that COMPILE and ' +
+        'are still wrong — a missed signal call in a position TypeScript does not check, a ' +
+        'deprecated-but-valid v21 rule shape, a pre-release API name, an AbstractControl left ' +
+        'in a form() model, Reactive Forms imports left behind. Run it after tsc, not instead ' +
+        'of it: anything the compiler already reports is deliberately not repeated here. ' +
+        'Read-only. It proves the ABSENCE OF KNOWN DEFECTS, never correctness.',
+      inputSchema: verifyMigrationInputSchema.shape,
+      outputSchema: verifyMigrationOutputSchema.shape,
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    },
+    ({ path }) => {
+      const root = toAbsolute(path);
+      const collected = collectSourceTexts(root);
+      if (!collected.ok) return errorResult(collected.error);
+
+      const report = verifyMigration(collected.data);
+      const all = report.files.flatMap((entry) => entry.findings);
+
+      const payload: VerifyMigrationOutput = {
+        files: report.files.map((entry) => ({ file: entry.file, findings: [...entry.findings] })),
+        errorCount: all.filter((f) => f.severity === 'error').length,
+        warningCount: all.filter((f) => f.severity === 'warning').length,
+        infoCount: all.filter((f) => f.severity === 'info').length,
+        notMigratedFiles: [...report.notMigratedFiles],
+        checksRun: VERIFY_CHECKS.filter(
+          (check) => !ALWAYS_SKIPPED.some((skipped) => skipped.check === check),
+        ),
+        checksSkipped: ALWAYS_SKIPPED.map((skipped) => ({ ...skipped })),
+        disclaimer: VERIFY_DISCLAIMER,
+      };
+      return jsonResult(payload);
+    },
+  );
+
   return server;
 }
 
@@ -398,7 +488,7 @@ Add it to Claude Code:
   claude mcp add signal-forms-migration -- npx -y ${SERVER_NAME}@latest
 
 Tools: find_form_candidates, get_signalforms_recipe, analyze_migration_complexity,
-get_migration_report, get_angular_upgrade_plan.
+get_migration_report, get_angular_upgrade_plan, verify_migration.
 
 Docs: https://github.com/Alvi97/angular-signal-forms-migration-mcp`;
 

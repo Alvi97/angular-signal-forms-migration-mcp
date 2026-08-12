@@ -298,6 +298,78 @@ export type GetSignalFormsRecipeInput = z.infer<typeof getSignalFormsRecipeInput
  * MCP requires `structuredContent` to be a JSON object, so the findings array is
  * wrapped in `files` rather than returned bare.
  */
+/* -------------------------------------------------------------------------- */
+/* verify_migration                                                            */
+/* -------------------------------------------------------------------------- */
+
+export const VERIFY_CHECKS = [
+  'leftoverReactiveForms',
+  'reactiveFormsModuleImport',
+  'signalNotCalled',
+  'deprecatedLogicShape',
+  'preReleaseApiName',
+  'schemaConstructionTimeRead',
+  'controlInSignalFormModel',
+  'droppedConstraint',
+] as const;
+export const verifyCheckSchema = z.enum(VERIFY_CHECKS);
+export type VerifyCheck = (typeof VERIFY_CHECKS)[number];
+
+/**
+ * Deliberately NOT `mechanical | judgment`. That pair grades migration WORK; grading a defect
+ * "mechanical" is a category error.
+ *
+ * `error`: will not build, or is a silent runtime defect. `warning`: compiles and may be
+ * wrong, and the tool cannot decide without type information. `info`: expected in this file's
+ * mode, reported so its absence is not mistaken for a finding.
+ */
+export const verifySeveritySchema = z.enum(['error', 'warning', 'info']);
+export type VerifySeverity = z.infer<typeof verifySeveritySchema>;
+
+export const verifyFindingSchema = z.object({
+  check: verifyCheckSchema,
+  severity: verifySeveritySchema,
+  line: z.number().int().positive(),
+  snippet: z.string(),
+  message: z.string(),
+  /** What backs the claim: a shipped `file:line`, a doc URL, or 'runtime-only'. Never empty. */
+  evidence: z.string().min(1),
+});
+export type VerifyFinding = z.infer<typeof verifyFindingSchema>;
+
+export const verifiedFileSchema = z.object({
+  file: z.string(),
+  findings: z.array(verifyFindingSchema),
+});
+
+export const skippedCheckSchema = z.object({
+  check: verifyCheckSchema,
+  reason: z.string().min(1),
+});
+
+export const verifyMigrationInputSchema = z.object({
+  path: z
+    .string()
+    .min(1)
+    .describe('Absolute path to an ALREADY-MIGRATED .ts file, or a directory to scan.'),
+});
+export type VerifyMigrationInput = z.infer<typeof verifyMigrationInputSchema>;
+
+export const verifyMigrationOutputSchema = z.object({
+  files: z.array(verifiedFileSchema),
+  errorCount: z.number().int().nonnegative(),
+  warningCount: z.number().int().nonnegative(),
+  infoCount: z.number().int().nonnegative(),
+  /** Scanned files that import no Signal Forms at all — nothing to verify there yet. */
+  notMigratedFiles: z.array(z.string()),
+  checksRun: z.array(verifyCheckSchema),
+  /** Non-empty whenever a check could not run. Silence must never read as a pass. */
+  checksSkipped: z.array(skippedCheckSchema),
+  /** Always present. This proves the ABSENCE OF KNOWN DEFECTS, not correctness. */
+  disclaimer: z.string(),
+});
+export type VerifyMigrationOutput = z.infer<typeof verifyMigrationOutputSchema>;
+
 export const pagedFileFindingsSchema = fileFindingsSchema.extend({
   matchedInFile: z
     .number()
