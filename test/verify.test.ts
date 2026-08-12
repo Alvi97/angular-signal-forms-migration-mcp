@@ -235,3 +235,67 @@ describe('droppedConstraint is refused rather than guessed', () => {
     expect(checks(source)).not.toContain('droppedConstraint');
   });
 });
+
+/**
+ * Both of these were found by running the tool against a REAL in-flight migration, minutes
+ * after it shipped. Every fixture in this file was either fully migrated or not migrated at
+ * all — never mid-flight — which is exactly the state a real migration spends its whole life
+ * in, and exactly why 759 tests missed them.
+ */
+describe('a partially migrated workspace is graded honestly', () => {
+  /** FormsModule is TEMPLATE-DRIVEN forms. Calling it a Reactive leftover names the wrong family. */
+  it('does not call FormsModule a Reactive Forms leftover', () => {
+    const source = `import { FormsModule } from '@angular/forms';
+import { form, FormField } from '@angular/forms/signals';
+export class C {}`;
+    expect(checks(source)).not.toContain('leftoverReactiveForms');
+  });
+
+  it('reports FormsModule as its own thing, with the right fix', () => {
+    const source = `import { FormsModule } from '@angular/forms';
+import { form, FormField } from '@angular/forms/signals';
+export class C {}`;
+    const finding = verifyMigratedSource('/a.ts', source).find(
+      (f) => f.check === 'templateDrivenModuleImport',
+    );
+    expect(finding).toBeDefined();
+    expect(finding?.message).toMatch(/template-driven/i);
+    expect(finding?.message).not.toMatch(/reactive forms leftover/i);
+  });
+
+  /**
+   * A shared validators file exporting BOTH a ValidatorFn and a Signal Forms rule is the
+   * normal shape of a phased migration: unmigrated consumers still need the old export. The
+   * compat-entry-point downgrade was too narrow — it only recognised the documented interop
+   * path, not the commoner one.
+   */
+  it('grades a dual-mode shared validators file as info, not error', () => {
+    const source = `import { AbstractControl, ValidationErrors, ValidatorFn } from '@angular/forms';
+import { validate } from '@angular/forms/signals';
+import type { SchemaPath } from '@angular/forms/signals';
+
+export function noDisposableEmail(): ValidatorFn {
+  return (control: AbstractControl): ValidationErrors | null =>
+    String(control.value).includes('temp') ? { disposable: true } : null;
+}
+
+export function noDisposableEmailRule(path: SchemaPath<string>): void {
+  validate(path, ({ value }) => (value().includes('temp') ? { kind: 'disposable' } : null));
+}`;
+    const findings = verifyMigratedSource('/validators.ts', source);
+    const leftover = findings.find((f) => f.check === 'leftoverReactiveForms');
+    expect(leftover?.severity).toBe('info');
+    expect(leftover?.message).toMatch(/both|dual|phased|still consume/i);
+  });
+
+  /** A component that merely imports Reactive types alongside signals IS still unfinished. */
+  it('still grades a component with leftover Reactive imports as an error', () => {
+    const source = `import { FormGroup } from '@angular/forms';
+import { form } from '@angular/forms/signals';
+export class C { old = new FormGroup({}); }`;
+    const leftover = verifyMigratedSource('/c.ts', source).find(
+      (f) => f.check === 'leftoverReactiveForms',
+    );
+    expect(leftover?.severity).toBe('error');
+  });
+});
