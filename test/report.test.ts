@@ -124,6 +124,7 @@ const v = (major: number, raw = `${major}.0.0`): AngularVersion => ({
   major,
   source: 'node_modules',
   from: '/repo/node_modules/@angular/core/package.json',
+  straddlesGate: false,
 });
 const unknown: AngularVersion = { known: false, reason: 'No package.json was found.' };
 

@@ -120,3 +120,58 @@ describe('win32 paths', () => {
     if (result.known) expect(signalFormsAvailable(result.major)).toBe(false);
   });
 });
+
+/**
+ * Found on a real repo: an old branch checked out over a newer node_modules. package.json
+ * declared 19.2.6, node_modules held 22.0.7, and the report said "Target Angular version:
+ * 22.0.7 — Signal Forms is available" without mentioning the contradiction.
+ *
+ * The two sources straddle the v21 boundary, which is the one case where silently preferring
+ * either is wrong: migrate on the installed version and the next `npm ci` reverts to 19, where
+ * `@angular/forms/signals` does not exist and every recipe stops compiling.
+ */
+describe('a declared/installed disagreement across the v21 boundary', () => {
+  it('is reported when the installed version is above and the declared below', () => {
+    const fs = memoryFs({
+      '/repo/package.json': pkg('19.2.6'),
+      '/repo/node_modules/@angular/core/package.json': installed('22.0.7'),
+      '/repo/src/a.ts': '',
+    });
+    const result = detectAngularVersion('/repo/src', fs);
+    expect(result.known).toBe(true);
+    if (!result.known) return;
+    expect(result.straddlesGate).toBe(true);
+    expect(result.declaredMajor).toBe(19);
+    expect(result.major).toBe(22);
+  });
+
+  it('is reported when the declared is above and the installed below', () => {
+    const fs = memoryFs({
+      '/repo/package.json': pkg('^22.0.0'),
+      '/repo/node_modules/@angular/core/package.json': installed('20.3.9'),
+      '/repo/src/a.ts': '',
+    });
+    const result = detectAngularVersion('/repo/src', fs);
+    if (!result.known) return;
+    expect(result.straddlesGate).toBe(true);
+  });
+
+  /** Disagreeing on the same side of the gate changes nothing about the migration. */
+  it('is NOT reported when both sit on the same side', () => {
+    const fs = memoryFs({
+      '/repo/package.json': pkg('^21.0.0'),
+      '/repo/node_modules/@angular/core/package.json': installed('22.0.7'),
+      '/repo/src/a.ts': '',
+    });
+    const result = detectAngularVersion('/repo/src', fs);
+    if (!result.known) return;
+    expect(result.straddlesGate).toBe(false);
+  });
+
+  it('is not reported when there is nothing installed to disagree with', () => {
+    const fs = memoryFs({ '/repo/package.json': pkg('^19.0.0'), '/repo/src/a.ts': '' });
+    const result = detectAngularVersion('/repo/src', fs);
+    if (!result.known) return;
+    expect(result.straddlesGate).toBe(false);
+  });
+});

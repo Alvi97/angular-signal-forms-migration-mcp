@@ -18,6 +18,16 @@ export type AngularVersion =
       readonly source: 'node_modules' | 'package.json';
       /** Absolute path of the file the version was read from. */
       readonly from: string;
+      /** The major package.json asked for, when it could be parsed. */
+      readonly declaredMajor?: number;
+      /**
+       * True when declared and installed fall on OPPOSITE sides of the v21 gate.
+       *
+       * Found on a real repo: an old branch checked out over a newer node_modules. Preferring
+       * either silently is wrong here — migrate on the installed version and the next
+       * `npm ci` reverts to one where `@angular/forms/signals` does not exist.
+       */
+      readonly straddlesGate: boolean;
     }
   | { readonly known: false; readonly reason: string };
 
@@ -112,6 +122,8 @@ export function detectAngularVersion(startPath: string, fs: FileSystemPort): Ang
     const installedVersion =
       typeof installed?.['version'] === 'string' ? installed['version'] : undefined;
 
+    const declaredMajor = parseMajor(declared);
+
     if (installedVersion !== undefined) {
       const major = parseMajor(installedVersion);
       if (major !== undefined) {
@@ -121,13 +133,25 @@ export function detectAngularVersion(startPath: string, fs: FileSystemPort): Ang
           major,
           source: 'node_modules',
           from: installedPath,
+          ...(declaredMajor === undefined ? {} : { declaredMajor }),
+          straddlesGate:
+            declaredMajor !== undefined &&
+            signalFormsAvailable(major) !== signalFormsAvailable(declaredMajor),
         };
       }
     }
 
-    const major = parseMajor(declared);
-    if (major !== undefined) {
-      return { known: true, raw: declared, major, source: 'package.json', from: packageJsonPath };
+    if (declaredMajor !== undefined) {
+      return {
+        known: true,
+        raw: declared,
+        major: declaredMajor,
+        source: 'package.json',
+        from: packageJsonPath,
+        declaredMajor,
+        // Nothing installed to disagree with.
+        straddlesGate: false,
+      };
     }
 
     return {
