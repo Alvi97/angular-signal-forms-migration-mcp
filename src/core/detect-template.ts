@@ -109,7 +109,8 @@ export function detectInTemplate(_filePath: string, text: string): Finding[] {
   const snippetAt = (pos: number): string => lineText(text, lineStarts, pos);
 
   const out: Finding[] = [];
-  for (const tag of scanTags(blanked)) {
+  const tags = scanTags(blanked);
+  for (const tag of tags) {
     // A `<select multiple>` cannot be converted at all, so it reports as a blocker instead
     // of a mechanical binding; emitting both for one element would contradict itself.
     if (isBlockedSelectMultiple(tag)) {
@@ -120,6 +121,7 @@ export function detectInTemplate(_filePath: string, text: string): Finding[] {
     collectNativeAttributeCollision(tag, lineAt, snippetAt, out);
   }
   collectRenamedErrorKeys(blanked, lineAt, snippetAt, out);
+  collectTemplateStateReads(blanked, tags, lineAt, snippetAt, out);
 
   out.sort((a, b) => a.line - b.line || a.construct.localeCompare(b.construct));
   return out;
@@ -374,4 +376,123 @@ function lineText(original: string, lineStarts: number[], pos: number): string {
   const start = lineStarts[line] ?? 0;
   const end = lineStarts[line + 1] ?? original.length;
   return original.slice(start, end).trim();
+}
+
+/* -------------------------------------------------------------------------- */
+/* Template state reads — the M5 defect, one layer up                          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * State members read off a control INSIDE a template expression.
+ *
+ * M5 added these for `.ts` and nobody added them for templates, so the scanner reported
+ * binding sites only. Running a real migration of forgot-password.component.html found six
+ * further edit sites in a file the report called "all mechanical, 0 judgment" — which is the
+ * same failure ROADMAP records for M5, in the same file, one layer up.
+ */
+const TEMPLATE_STATE_MEMBERS =
+  'invalid|valid|touched|untouched|dirty|pristine|pending|errors|value|disabled|enabled';
+
+/** `email?.invalid`, `form.invalid` — a call-shape change once migrated. */
+const STATE_READ = new RegExp(
+  String.raw`\b([A-Za-z_$][\w$]*)\s*(?:\?\.|\.)\s*(${TEMPLATE_STATE_MEMBERS})\b(?!\s*\()`,
+  'g',
+);
+
+/** `errors?.['required']` — a SHAPE change, and a silent one. */
+const ERROR_KEY_LOOKUP = /errors\s*(?:\?\.)?\s*\[\s*(['"])([A-Za-z_$][\w$]*)\1\s*\]/g;
+
+/** Keys already reported by collectRenamedErrorKeys, so a site is never counted twice. */
+const RENAMED_KEYS: ReadonlySet<string> = new Set(['minlength', 'maxlength']);
+
+/**
+ * Spans of a template that Angular evaluates as an expression: binding attribute values,
+ * interpolations, and control-flow conditions. Scanning only these is what keeps ordinary
+ * prose and unrelated attributes out.
+ */
+function expressionSpans(text: string): { start: number; end: number }[] {
+  const spans: { start: number; end: number }[] = [];
+
+  // [prop]="…", (event)="…", *dir="…" — a quoted value on a bound attribute.
+  for (const match of text.matchAll(/[[(*][^\s=<>]+[)\]]?\s*=\s*"([^"]*)"/g)) {
+    const index = match.index ?? 0;
+    const start = index + match[0].indexOf('"') + 1;
+    spans.push({ start, end: start + (match[1]?.length ?? 0) });
+  }
+  // {{ … }}
+  for (const match of text.matchAll(/\{\{([\s\S]*?)\}\}/g)) {
+    const start = (match.index ?? 0) + 2;
+    spans.push({ start, end: start + (match[1]?.length ?? 0) });
+  }
+  // @if (…) / @for (…) / @switch (…)
+  for (const match of text.matchAll(/@(?:if|else if|for|switch)\s*\(([\s\S]*?)\)\s*\{/g)) {
+    const index = match.index ?? 0;
+    const start = index + match[0].indexOf('(') + 1;
+    spans.push({ start, end: start + (match[1]?.length ?? 0) });
+  }
+  return spans;
+}
+
+/**
+ * True when this template binds a Reactive form at all. Without it, `user?.invalid` in an
+ * unrelated component would be reported — precision-first, and a template cannot tell a form
+ * from any other object by name alone.
+ */
+function bindsAForm(tags: readonly Tag[]): boolean {
+  return tags.some((tag) =>
+    tag.attrs.some((attr) => REACTIVE_CONTROL_BINDINGS.has(bareAttrName(attr.name))),
+  );
+}
+
+function collectTemplateStateReads(
+  text: string,
+  tags: readonly Tag[],
+  lineAt: (pos: number) => number,
+  snippetAt: (pos: number) => string,
+  out: Finding[],
+): void {
+  if (!bindsAForm(tags)) return;
+
+  for (const span of expressionSpans(text)) {
+    const source = text.slice(span.start, span.end);
+
+    for (const match of source.matchAll(ERROR_KEY_LOOKUP)) {
+      const key = match[2] ?? '';
+      if (RENAMED_KEYS.has(key.toLowerCase())) continue;
+      const pos = span.start + (match.index ?? 0);
+      out.push({
+        construct: 'Template.errorKeyLookup',
+        line: lineAt(pos),
+        snippet: snippetAt(pos),
+        classification: 'judgment',
+        reason:
+          `Reads \`errors['${key}']\` as a keyed object. Signal Forms errors are an ARRAY of ` +
+          '`{ kind, message }`, not a map — so this is a shape change, not a rename. Use ' +
+          `\`field().getError('${key}')\`, or match on \`.kind\`. A transliterated bracket ` +
+          'access compiles and silently never matches, so the message just disappears.',
+        definesForm: false,
+      });
+    }
+
+    for (const match of source.matchAll(STATE_READ)) {
+      const member = match[2] ?? '';
+      const pos = span.start + (match.index ?? 0);
+      // `errors[...]` is reported above with its own, sharper reason.
+      if (member === 'errors' && /errors\s*(?:\?\.)?\s*\[/.test(source.slice(match.index ?? 0))) {
+        continue;
+      }
+      out.push({
+        construct: 'Template.stateRead',
+        line: lineAt(pos),
+        snippet: snippetAt(pos),
+        classification: 'mechanical',
+        reason:
+          `\`.${member}\` is read off a control in a template expression. On field state it is ` +
+          `a SIGNAL: write \`field().${member}()\`. Reading it without calling yields the ` +
+          'signal object, which is always truthy, and a template gets no compiler warning for ' +
+          'it. The field path comes from the component, so migrate the two together.',
+        definesForm: false,
+      });
+    }
+  }
 }
