@@ -17,6 +17,12 @@ const TEMPLATE = `<form [formGroup]="form">
 </form>`;
 
 const COMPONENT = `import { FormGroup, FormControl, Validators } from '@angular/forms';
+
+// A control subclass: also cross-file, because its instantiation sites live elsewhere.
+export class AddressForm extends FormGroup {
+  constructor() { super({ street: new FormControl('') }); }
+}
+
 export class C {
   form = new FormGroup({
     coupon: new FormControl(''),

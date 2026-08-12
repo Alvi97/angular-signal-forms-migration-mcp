@@ -23,11 +23,12 @@ first, every session. This file is the rules you must never break.
 
    **A DOC GAP IS NOT A BEHAVIOUR.** This rule previously cited "v22 made `required()`
    reject `false`; v21 accepted it". That was wrong, and it survived two audits because
-   every check compared *documentation* across versions. `isEmpty` is byte-identical in
+   every check compared _documentation_ across versions. `isEmpty` is byte-identical in
    `@angular/forms` 21.0.0 and 22.0.7 — both contain `value === false` — so v21 rejected
    `false` exactly as v22 does. Only the docs changed: v22 added the sentence v21 omitted.
    When claiming a version difference, diff the shipped source (`npm pack @angular/forms@N`),
    not the two doc pages. Absence of a statement is not evidence of different behaviour.
+
 3. **SHIP INCREMENTALLY.** Commit M1 to GitHub before starting M2. One milestone in
    flight at a time. Do not scope-creep a later milestone's work into the current one.
    Milestones are defined in SPEC.md (M1→M4).

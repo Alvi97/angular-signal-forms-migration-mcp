@@ -1155,6 +1155,269 @@ export class Registration {
     },
   ],
   [
+    'groupValidator',
+    {
+      construct: 'groupValidator',
+      description:
+        'A validator attached to the FormGroup is a cross-field rule. Signal Forms has two ' +
+        'placements and they differ in WHERE THE ERROR LANDS, which is the migration decision.',
+      before: `import { AbstractControl, FormBuilder, ValidationErrors } from '@angular/forms';
+
+export function passwordsMatch(group: AbstractControl): ValidationErrors | null {
+  return group.get('password')?.value === group.get('confirmPassword')?.value
+    ? null
+    : { passwordMismatch: true };
+}
+
+export class SignUp {
+  constructor(private fb: FormBuilder) {}
+  // The error lands on the GROUP: confirmPassword.errors stays null.
+  form = this.fb.group(
+    { password: [''], confirmPassword: [''] },
+    { validators: [passwordsMatch] },
+  );
+}`,
+      after: `import { signal } from '@angular/core';
+import { form, required, validate, validateTree } from '@angular/forms/signals';
+import type { SchemaPathTree } from '@angular/forms/signals';
+
+interface SignUpModel {
+  password: string;
+  confirmPassword: string;
+}
+
+export class SignUp {
+  readonly model = signal<SignUpModel>({ password: '', confirmPassword: '' });
+
+  // DEFAULT: put the error on the field the user must fix. \`validate\` cannot target any
+  // other field — FieldValidator returns ValidationError.WithoutFieldTree, whose fieldTree
+  // is declared \`never\`.
+  readonly f = form(this.model, (path) => {
+    required(path.password);
+    required(path.confirmPassword);
+
+    validate(path.confirmPassword, ({ value, valueOf }) =>
+      value() === valueOf(path.password)
+        ? null
+        : { kind: 'passwordMismatch', message: 'Passwords do not match' },
+    );
+  });
+}
+
+// ===========================================================================
+// MANY TARGETS: validateTree() is the only form that can attach an error to a
+// field other than the one it is bound to. Bind it at the LOWEST COMMON
+// ANCESTOR of every field it targets.
+// ===========================================================================
+interface Booking {
+  dateFrom: string;
+  dateTo: string;
+}
+
+export function dateRangeRule(path: SchemaPathTree<Booking>): void {
+  validateTree(path, ({ value, fieldTreeOf }) => {
+    const { dateFrom, dateTo } = value();
+    if (dateFrom <= dateTo) return null;
+    const message = 'From date must be on or before the to date';
+    return [
+      { kind: 'dateRange', message, fieldTree: fieldTreeOf(path.dateFrom) },
+      { kind: 'dateRange', message, fieldTree: fieldTreeOf(path.dateTo) },
+    ];
+  });
+}`,
+      caveats: [
+        STABILITY,
+        'WHERE THE ERROR LANDS IS THE MIGRATION. Reactive put the error on the group and ' +
+          'nowhere else, so the template read the group. Porting that faithfully — ' +
+          '`validate(path, ...)` at the group path — keeps `f().invalid()` working while ' +
+          'every per-field error block goes silent. Decide which field should show it.',
+        '`validate()` STRUCTURALLY CANNOT target another field: its return type is ' +
+          '`ValidationError.WithoutFieldTree`, which declares `fieldTree?: never`. Setting it ' +
+          'is a type error, not a runtime surprise. Use validateTree() when you need to.',
+        'A reusable cross-field rule takes `SchemaPathTree<T>`, NOT `SchemaPath<T>` — the ' +
+          'latter has no subfield properties, so `path.dateFrom` does not compile.',
+        'UNVERIFIED at runtime, INFERRED from the shipped tree-error propagation: a ' +
+          'validateTree error whose fieldTree is NOT a descendant of the bound path matches ' +
+          'nowhere and is silently discarded, leaving the form reporting valid. `fieldTree` is ' +
+          'typed `ReadonlyFieldTree<unknown>`, so the compiler accepts any field and will not ' +
+          'catch this. Bind at the lowest common ancestor.',
+        '`errors()` is own-errors only; `errorSummary()` includes descendants. A group-level ' +
+          'error therefore does NOT appear in a child field\u2019s `errors()`.',
+      ],
+      sources: [DOCS.crossField, DOCS.validation],
+    },
+  ],
+  [
+    'FormRecord',
+    {
+      construct: 'FormRecord',
+      description:
+        'A FormRecord has an OPEN key set, so it becomes a `Record<string, T>` model with ' +
+        'applyEach() applying one schema to every value. Keys are added and removed by ' +
+        'updating the model signal; there is no record control object to mutate.',
+      before: `import { FormRecord, FormControl } from '@angular/forms';
+
+export class Preferences {
+  // Keys are not known ahead of time.
+  readonly prefs = new FormRecord<FormControl<boolean>>({});
+
+  add(key: string) {
+    this.prefs.addControl(key, new FormControl(true, { nonNullable: true }));
+  }
+
+  remove(key: string) {
+    this.prefs.removeControl(key);
+  }
+
+  read(key: string) {
+    return this.prefs.get(key)?.value;
+  }
+}`,
+      after: `import { signal } from '@angular/core';
+import { applyEach, form, required } from '@angular/forms/signals';
+import type { FieldTree } from '@angular/forms/signals';
+
+export class Preferences {
+  // A Record<string, T> model: the key set stays open, and Subfields collapses to an index
+  // signature so every key gets a field.
+  readonly model = signal<Record<string, string>>({});
+
+  readonly f = form(this.model, (path) => {
+    // One schema for every value in the record, whatever the keys turn out to be.
+    applyEach(path, (value) => {
+      required(value);
+    });
+  });
+
+  add(key: string) {
+    this.model.update((current) => ({ ...current, [key]: '' }));
+  }
+
+  remove(key: string) {
+    this.model.update((current) => {
+      const { [key]: _removed, ...rest } = current;
+      return rest;
+    });
+  }
+
+  // Route index access through one accessor: under noUncheckedIndexedAccess the field tree's
+  // index signature is \`FieldTree<T> | undefined\`, and it really can be undefined at runtime.
+  fieldFor(key: string): FieldTree<string> {
+    return this.f[key] as unknown as FieldTree<string>;
+  }
+}`,
+      caveats: [
+        STABILITY,
+        'UNDOCUMENTED USE OF A DOCUMENTED API. angular.dev describes applyEach only for ' +
+          'arrays — both of its usage notes show the same array example, and a version-pinned ' +
+          'docs search for a record/dynamic-key example returns NOTHING. The API itself is ' +
+          'real and its second overload accepts any object type; applying it to a record is ' +
+          'inference from the shipped signatures, not a documented pattern. Re-probe on each ' +
+          'Angular minor.',
+        'There is NO `formRecord()` in Signal Forms. The counterpart is the model TYPE, not a ' +
+          'different constructor — if you find yourself reaching for a record-specific API, ' +
+          'that API does not exist.',
+        'INDEXING RETURNS `| undefined` under `noUncheckedIndexedAccess`, and not only in the ' +
+          'type system — the field proxy returns undefined for an absent key. Route index ' +
+          'access through one accessor rather than scattering casts, and make that accessor ' +
+          'the place where the runtime guarantee is stated.',
+        'A HELD field reference becomes an ORPHAN when its key leaves the model: reading it ' +
+          'throws NG01902. That is the whole hazard of an open key set — read through the ' +
+          'tree at the point of use rather than storing `const field = f[key]`.',
+        'The template cannot use an arrow function, so iterate keys with `@for (key of ' +
+          'keys(); track key)` over a computed list rather than trying to iterate the field ' +
+          'tree itself. UNVERIFIED: the template form is not compile-checked here — ' +
+          '`npm run verify:recipes` runs plain tsc, which does not typecheck an inline ' +
+          'template, so run the AOT build.',
+      ],
+      sources: [DOCS.dynamicJson, DOCS.models, DOCS.schemas],
+    },
+  ],
+  [
+    'controlSubclass',
+    {
+      construct: 'controlSubclass',
+      description:
+        'A class extending FormGroup / FormControl / FormArray has no counterpart: a Signal ' +
+        'Forms field tree is a mapped TYPE, not a class. The subclass splits into four ' +
+        'destinations — an interface, a schema, plain functions, and computed signals.',
+      before: `import { FormGroup, FormControl, Validators } from '@angular/forms';
+
+export class AddressForm extends FormGroup {
+  constructor() {
+    super({
+      street: new FormControl('', Validators.required),
+      city: new FormControl('', Validators.required),
+    });
+  }
+
+  get oneLine(): string {
+    return \`\${this.get('street')?.value}, \${this.get('city')?.value}\`;
+  }
+
+  clearCity(): void {
+    this.get('city')?.setValue('');
+  }
+}`,
+      after: `import { computed, signal } from '@angular/core';
+import { form, required, schema } from '@angular/forms/signals';
+
+// 1. STRUCTURE becomes an interface plus an empty value.
+export interface Address {
+  street: string;
+  city: string;
+}
+
+export const EMPTY_ADDRESS: Address = { street: '', city: '' };
+
+// 2. CONSTRUCTOR VALIDATOR WIRING becomes a reusable schema.
+export const addressSchema = schema<Address>((path) => {
+  required(path.street);
+  required(path.city);
+});
+
+// 3. DOMAIN METHODS become plain functions over the model type — they no longer live on the
+//    form, because methods are mapped OUT of the field tree.
+export function oneLine(address: Address): string {
+  return \`\${address.street}, \${address.city}\`;
+}
+
+// 4. DERIVED GETTERS become computed() on the component that owns the model.
+export class AddressComponent {
+  readonly model = signal(EMPTY_ADDRESS);
+  readonly f = form(this.model, addressSchema);
+
+  readonly oneLine = computed(() => oneLine(this.model()));
+
+  clearCity(): void {
+    this.f.city().value.set('');
+  }
+}`,
+      caveats: [
+        STABILITY,
+        'NOT DOCUMENTED. angular.dev says nothing about migrating a control subclass in either ' +
+          'direction — a version-pinned docs search returns no results. Each DESTINATION is ' +
+          'documented on its own (model design, schemas, custom controls); the mapping from ' +
+          'subclass member to destination is INFERRED by this tool. Treat it as a starting ' +
+          'shape, not an authority.',
+        'There is nothing to extend. `FieldTree` is a mapped/conditional TYPE ALIAS with no ' +
+          'constructor, and `Schema` is a branded object — `class X extends FieldTree` is not ' +
+          'a thing you can write.',
+        'KEEPING THE CLASS AS THE MODEL DOES NOT WORK, for two independent reasons. Methods ' +
+          'are mapped OUT of the field tree (Subfields excludes function-typed keys), and the ' +
+          'first child write spreads the object into a plain literal, so the prototype — and ' +
+          'every method with it — is gone after one edit.',
+        'STAGING STEP, NOT THE DESTINATION: `compatForm()` accepts a model whose properties ' +
+          'are AbstractControl instances and preserves the declared type, so an existing ' +
+          'subclass keeps working while you convert its consumers. It defers the redesign ' +
+          'rather than performing it — do not stop there.',
+        'The instantiation sites are in OTHER files, so this finding cannot be resolved from ' +
+          'the file that declares the class. Decide the split first, then migrate consumers.',
+      ],
+      sources: [DOCS.models, DOCS.schemas, DOCS.customControls, DOCS.migration],
+    },
+  ],
+  [
     'formStateRead',
     {
       construct: 'formStateRead',
@@ -2127,8 +2390,8 @@ readonly f = form(this.model);
       construct: 'customValidator',
       description:
         'A custom ValidatorFn is rewritten with validate(). The callback receives a FieldContext ' +
-        '({ value, valueOf, state, field, ... }) rather than an AbstractControl, and returns an ' +
-        'error object or null.',
+        '({ value, state, fieldTree, valueOf, stateOf, fieldTreeOf, pathKeys }) rather than an ' +
+        'AbstractControl, and returns an error object or null.',
       before: `import { AbstractControl, ValidationErrors, ValidatorFn } from '@angular/forms';
 
 export function httpsUrl(): ValidatorFn {
@@ -2242,6 +2505,14 @@ const ALIASES: ReadonlyMap<string, string> = new Map([
   ['abstractcontrol.controls', 'formStateRead'],
   ['abstractcontrol.status', 'formStateRead'],
   ['formstateread', 'formStateRead'],
+  ['groupvalidator', 'groupValidator'],
+  ['formrecord', 'FormRecord'],
+  ['controlsubclass', 'controlSubclass'],
+  ['subclass', 'controlSubclass'],
+  ['formbuilder.record', 'FormRecord'],
+  ['fb.record', 'FormRecord'],
+  ['crossfieldvalidator', 'groupValidator'],
+  ['cross-field validator', 'groupValidator'],
   // Writing to a form -> the model signal, or a schema rule.
   ['abstractcontrol.setvalue', 'formStateWrite'],
   ['abstractcontrol.patchvalue', 'formStateWrite'],

@@ -91,6 +91,11 @@ const CONTROL_TYPES: ReadonlySet<string> = new Set([
   'FormGroup',
   'FormControl',
   'FormArray',
+  // `class FormRecord extends FormGroup {}` — an empty body. The difference is entirely
+  // type-level (homogeneous control type, OPEN key set), but omitting it here bound no name,
+  // so every downstream usage was invisible: measured 3 findings and 0 judgment on a record
+  // form that used addControl, .get(key), Object.keys(.controls) and getRawValue().
+  'FormRecord',
   'AbstractControl',
 ]);
 
@@ -99,6 +104,7 @@ const REPORTED_CONTROL_TYPES: ReadonlySet<string> = new Set([
   'FormGroup',
   'FormControl',
   'FormArray',
+  'FormRecord',
 ]);
 
 /** Methods that mutate a form's shape at runtime. No Signal Forms equivalent, so judgment. */
@@ -529,7 +535,8 @@ function isFormConstruction(
   }
   if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
     const method = declaredName(node.expression.name);
-    if (method === 'group' || method === 'array' || method === 'control') return true;
+    if (method === 'group' || method === 'array' || method === 'control' || method === 'record')
+      return true;
     // A factory delegating to another factory: `return this.buildBase();`
     if (
       method !== undefined &&
@@ -616,7 +623,7 @@ function holdsFormInitializer(node: ts.Node, aliases: ReadonlyMap<string, string
   }
   if (ts.isCallExpression(initializer) && ts.isPropertyAccessExpression(initializer.expression)) {
     const method = declaredName(initializer.expression.name);
-    return method === 'group' || method === 'array' || method === 'control';
+    return method === 'group' || method === 'array' || method === 'control' || method === 'record';
   }
   return false;
 }
@@ -684,6 +691,7 @@ function isInjectFormBuilder(node: ts.Node, aliases: ReadonlyMap<string, string>
 function collectFromNode(node: ts.Node, names: BoundNames, out: FindingDraft[]): void {
   if (ts.isNewExpression(node)) {
     collectFromNewExpression(node, names, out);
+    collectFromPositionalGroupValidator(node, names.aliases, out);
     return;
   }
   if (ts.isCallExpression(node)) {
@@ -695,6 +703,7 @@ function collectFromNode(node: ts.Node, names: BoundNames, out: FindingDraft[]):
   }
   if (ts.isPropertyAssignment(node)) {
     collectFromAsyncValidatorsOption(node, out);
+    collectFromGroupValidatorsOption(node, names.aliases, out);
     collectFromDeadValidatorOption(node, names.aliases, out);
     return;
   }
@@ -709,6 +718,7 @@ function collectFromNode(node: ts.Node, names: BoundNames, out: FindingDraft[]):
   }
   if (ts.isClassDeclaration(node)) {
     collectControlValueAccessor(node, names.aliases, out);
+    collectControlSubclass(node, names.aliases, out);
     return;
   }
   if (ts.isFunctionLike(node)) {
@@ -1047,6 +1057,144 @@ function isConstructorOptionsObject(
   return CONTROL_TYPES.has(canonical(parent.expression.text, aliases));
 }
 
+/** True when this object literal is the OPTIONS argument (index 1) of a group/array builder. */
+function isGroupOptionsObject(
+  node: ts.Node | undefined,
+  aliases: ReadonlyMap<string, string>,
+): boolean {
+  if (node === undefined || !ts.isObjectLiteralExpression(node)) return false;
+  const parent: ts.Node | undefined = node.parent;
+  if (parent === undefined) return false;
+
+  // A control-level `validators:` is not a cross-field rule — it is already covered by
+  // Validators.* / customValidator — so the container type and the argument slot both matter.
+  const isSecondArgument =
+    (ts.isNewExpression(parent) || ts.isCallExpression(parent)) && parent.arguments?.[1] === node;
+  if (!isSecondArgument) return false;
+
+  if (ts.isNewExpression(parent) && ts.isIdentifier(parent.expression)) {
+    const name = canonical(parent.expression.text, aliases);
+    return name === 'FormGroup' || name === 'FormArray' || name === 'FormRecord';
+  }
+  if (ts.isCallExpression(parent) && ts.isPropertyAccessExpression(parent.expression)) {
+    const method = declaredName(parent.expression.name);
+    return method === 'group' || method === 'array' || method === 'record';
+  }
+  return false;
+}
+
+/**
+ * A FormRecord's key set is OPEN. A Signal Forms model is a typed object, so the counterpart
+ * is `Record<string, T>` with applyEach() over its values — which means deciding how keys are
+ * added and removed, not renaming a constructor.
+ */
+
+/**
+ * Reactive Forms base classes that real codebases extend. A superset of CONTROL_TYPES: the
+ * Untyped* aliases are subclassed in older code and are otherwise unknown to this detector.
+ */
+const SUBCLASSABLE_CONTROL_TYPES: ReadonlySet<string> = new Set([
+  ...CONTROL_TYPES,
+  'UntypedFormControl',
+  'UntypedFormGroup',
+  'UntypedFormArray',
+]);
+
+/**
+ * `class AddressForm extends FormGroup` — a redesign, not a rename.
+ *
+ * There is nothing to extend on the other side: `FieldTree` is a mapped/conditional TYPE
+ * ALIAS, not a class, so the subclass splits into a model interface, a schema, plain
+ * functions and computed signals. Reported once per class, mirroring the CVA handler.
+ */
+function collectControlSubclass(
+  node: ts.ClassDeclaration,
+  aliases: ReadonlyMap<string, string>,
+  out: FindingDraft[],
+): void {
+  const extended = (node.heritageClauses ?? []).find(
+    (clause) => clause.token === ts.SyntaxKind.ExtendsKeyword,
+  );
+  if (extended === undefined) return;
+
+  const base = extended.types.find(
+    (type) =>
+      ts.isIdentifier(type.expression) &&
+      SUBCLASSABLE_CONTROL_TYPES.has(canonical(type.expression.text, aliases)),
+  );
+  if (base === undefined || !ts.isIdentifier(base.expression)) return;
+  const baseName = canonical(base.expression.text, aliases);
+
+  out.push({
+    construct: 'controlSubclass',
+    node,
+    // The subclass does not itself define a migratable form: the controls inside super() are
+    // reported separately, and the instantiation sites live in other files.
+    definesForm: false,
+    classification: 'judgment',
+    reason:
+      `This class extends ${baseName}. Signal Forms has no class to extend — a field tree is ` +
+      'a mapped TYPE ALIAS generated from the model, and methods on the model are mapped OUT ' +
+      'of it. The subclass therefore splits: structure becomes an interface, constructor ' +
+      'validator wiring becomes a schema(), domain methods become plain functions over the ' +
+      'model type, and derived getters become computed(). Decide that split before migrating ' +
+      'any file that instantiates it.',
+  });
+}
+
+const FORM_RECORD_REASON =
+  'A FormRecord has an OPEN key set, so it cannot become a fixed model shape. The counterpart ' +
+  'is a `Record<string, T>` model with applyEach() applying one schema to every value, and ' +
+  'keys added or removed by updating the model signal. Decide how keys are managed first.';
+
+const GROUP_VALIDATOR_REASON =
+  'A validator attached to the GROUP is a cross-field rule. In Signal Forms WHERE THE ERROR ' +
+  'LANDS is the migration decision, not a detail: `validate(path.confirm, ...)` puts it on ' +
+  'the field the user must fix, while `validate(path, ...)` at the group path leaves every ' +
+  'per-field error block silent even though the form is invalid. `validateTree` is the only ' +
+  'form that can target another field, and it must be bound at the lowest common ancestor of ' +
+  'every field it targets.';
+
+/** `{ validators: [...] }` on a group/array — the cross-field shape. */
+function collectFromGroupValidatorsOption(
+  node: ts.PropertyAssignment,
+  aliases: ReadonlyMap<string, string>,
+  out: FindingDraft[],
+): void {
+  if (declaredName(node.name) !== 'validators') return;
+  if (!isGroupOptionsObject(node.parent, aliases)) return;
+  out.push({
+    construct: 'groupValidator',
+    node,
+    classification: 'judgment',
+    reason: GROUP_VALIDATOR_REASON,
+  });
+}
+
+/** `new FormGroup({...}, passwordsMatch)` — the legacy positional validator. */
+function collectFromPositionalGroupValidator(
+  node: ts.NewExpression,
+  aliases: ReadonlyMap<string, string>,
+  out: FindingDraft[],
+): void {
+  if (!ts.isIdentifier(node.expression)) return;
+  const name = canonical(node.expression.text, aliases);
+  if (name !== 'FormGroup' && name !== 'FormArray' && name !== 'FormRecord') return;
+
+  const second = node.arguments?.[1];
+  if (second === undefined) return;
+  // An options object is handled by the property-assignment path above.
+  if (ts.isObjectLiteralExpression(second)) return;
+  if (!ts.isIdentifier(second) && !ts.isArrayLiteralExpression(second)) return;
+
+  out.push({
+    construct: 'groupValidator',
+    node: second,
+    classification: 'judgment',
+    reason: GROUP_VALIDATOR_REASON,
+  });
+}
+
 /** `new FormControl('', { asyncValidators: [...] })` and the fb.group equivalent. */
 function collectFromAsyncValidatorsOption(node: ts.PropertyAssignment, out: FindingDraft[]): void {
   if (declaredName(node.name) !== 'asyncValidators') return;
@@ -1135,6 +1283,17 @@ function collectFromNewExpression(
   // Canonical, so `new FG(...)` takes the FormGroup branch and is REPORTED as FormGroup.
   const constructName = canonical(node.expression.text, names.aliases);
 
+  if (constructName === 'FormRecord') {
+    out.push({
+      construct: 'FormRecord',
+      node,
+      definesForm: true,
+      classification: 'judgment',
+      reason: FORM_RECORD_REASON,
+    });
+    return;
+  }
+
   if (constructName === 'FormArray') {
     const owner = assignedName(node);
     const mutated = owner !== undefined && names.mutated.has(owner);
@@ -1217,8 +1376,21 @@ function collectFromFormBuilderCall(
   if (!ts.isPropertyAccessExpression(callee)) return;
 
   const method = declaredName(callee.name);
-  if (method !== 'group' && method !== 'control' && method !== 'array') return;
+  if (method !== 'group' && method !== 'control' && method !== 'array' && method !== 'record') {
+    return;
+  }
   if (!isKnownReceiver(callee.expression, formBuilderNames)) return;
+
+  if (method === 'record') {
+    out.push({
+      construct: 'FormBuilder.record',
+      node,
+      definesForm: true,
+      classification: 'judgment',
+      reason: FORM_RECORD_REASON,
+    });
+    return;
+  }
 
   if (method === 'array') {
     out.push({

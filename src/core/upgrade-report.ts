@@ -108,6 +108,12 @@ export interface UpgradeReportContext {
   /** True when the workspace is Nx-driven, which changes the upgrade command entirely. */
   readonly isNxWorkspace?: boolean;
   readonly peers?: PeerBlockerReport;
+  /**
+   * Options the CALLER actually supplied. Anything neither answered nor inferred was never
+   * asked, and must not be reported as the user's answer — `windows` in particular can never
+   * be inferred, because package.json says nothing about anyone's operating system.
+   */
+  readonly answered?: readonly string[];
 }
 
 export function buildUpgradeReport(
@@ -125,12 +131,13 @@ export function buildUpgradeReport(
   lines.push('');
 
   if (plan.total === 0) {
-    lines.push(
-      `Nothing to do — v${String(plan.fromMajor)} already satisfies the target. ` +
-        (signalFormsGoal
-          ? `Signal Forms needs v${String(MIN_SIGNAL_FORMS_VERSION)}+, so you can migrate.`
-          : ''),
-    );
+    // Built by join, not concatenation: the old form left a trailing space whenever
+    // signalFormsGoal was false, which only an exact-equality assertion ever catches.
+    const parts = [`Nothing to do — v${String(plan.fromMajor)} already satisfies the target.`];
+    if (signalFormsGoal) {
+      parts.push(`Signal Forms needs v${String(MIN_SIGNAL_FORMS_VERSION)}+, so you can migrate.`);
+    }
+    lines.push(parts.join(' '));
     return lines.join('\n');
   }
 
@@ -208,14 +215,23 @@ export function buildUpgradeReport(
       return `- \`${option}\` — cannot affect this version range; your answer changes nothing.`;
     }
     // Say where the answer came from. Claiming "you said" for something read out of
-    // package.json misrepresents both its source and its reliability.
-    const said = inferred.includes(option) ? 'detected from package.json' : 'you answered';
+    // package.json misrepresents both its source and its reliability — and claiming it for a
+    // question that was never put to anyone is worse, because it invites the reader to trust
+    // a default as a decision. Three sources, not two.
+    const said = inferred.includes(option)
+      ? 'detected from package.json'
+      : (context.answered ?? []).includes(option)
+        ? 'you answered'
+        : 'not asked — assumed no';
 
     if (impact.includedByAnswer > 0) {
       return `- \`${option}\` — **yes** (${said}), so ${String(impact.includedByAnswer)} step(s) are INCLUDED below.`;
     }
     if (impact.excludedByAnswer > 0) {
-      return `- \`${option}\` — **no** (${said}), so ${String(impact.excludedByAnswer)} step(s) were EXCLUDED. Pass \`${option}: true\` if that is wrong.`;
+      // "were EXCLUDED" alone reads as "flip this and get that many back", which is not what
+      // the number measures: a step tagged `material` can also be gated by complexity, so
+      // 3 excluded here yields only 2 more steps when enabled. Say what was counted.
+      return `- \`${option}\` — **no** (${said}), so ${String(impact.excludedByAnswer)} step(s) tagged \`${option}\` were filtered out (enabling it may add fewer, since a step can be gated more than once). Pass \`${option}: true\` if that is wrong.`;
     }
     return `- \`${option}\` — no applicable steps at this complexity level.`;
   });

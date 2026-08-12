@@ -41,7 +41,10 @@ for (const recipe of allRecipes()) {
       const trimmed = raw.trim();
       if (trimmed === '') continue;
       const isType = typeOnlyImport !== undefined || /^type\s/.test(trimmed);
-      const name = trimmed.replace(/^type\s+/, '').split(/\s+as\s+/)[0].trim();
+      const name = trimmed
+        .replace(/^type\s+/, '')
+        .split(/\s+as\s+/)[0]
+        .trim();
       if (name === '') continue;
       // A symbol seen as a value anywhere is a value.
       entry.set(name, (entry.get(name) ?? true) && isType);

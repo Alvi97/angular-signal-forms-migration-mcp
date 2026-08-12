@@ -19,12 +19,14 @@ describe('getSignalFormsRecipe', () => {
   });
 
   it('returns a structured miss — never throws — for an unknown construct', () => {
-    const result = getSignalFormsRecipe('FormRecord');
+    // Was `FormRecord` until M15 gave it a recipe. `NgForm` is template-driven, which the
+    // project refuses to invent a path for, so it is a stable example of a real miss.
+    const result = getSignalFormsRecipe('NgForm');
 
     expect(result.found).toBe(false);
     if (result.found) return;
 
-    expect(result.construct).toBe('FormRecord');
+    expect(result.construct).toBe('NgForm');
     // The miss is self-healing: the agent gets the valid keys back and can retry.
     expect(result.availableConstructs).toContain('FormGroup');
     expect(result.availableConstructs.length).toBeGreaterThan(0);
@@ -332,5 +334,35 @@ describe('submission semantics match the shipped implementation', () => {
       .flatMap((r) => r.caveats)
       .join('\n');
     expect(everyCaveat).not.toMatch(/answer must be in before submitting/i);
+  });
+});
+
+/**
+ * RootFieldContext is exactly { value, state, fieldTree, valueOf, stateOf, fieldTreeOf,
+ * pathKeys } (_structure-chunk.d.ts). `ctx.field` is TS2339. The v22 Validation guide's own
+ * FieldContext table lists `field`, and this recipe copied the docs' error — which is the
+ * failure mode CLAUDE.md rule 2 exists to prevent, arriving through prose rather than a
+ * version diff.
+ */
+describe('the custom-validator recipe names only real FieldContext members', () => {
+  const REAL = ['value', 'state', 'fieldTree', 'valueOf', 'stateOf', 'fieldTreeOf', 'pathKeys'];
+
+  it('does not list `field` among the FieldContext members', () => {
+    const recipe = getSignalFormsRecipe('customValidator');
+    expect(recipe.found).toBe(true);
+    if (!recipe.found) return;
+    const listed = /FieldContext\s*\(\{([^}]*)\}/.exec(recipe.description)?.[1] ?? '';
+    expect(listed, 'the description should list the context members').not.toBe('');
+    expect(listed.split(',').map((s) => s.trim())).not.toContain('field');
+  });
+
+  it('every member it does name is real', () => {
+    const recipe = getSignalFormsRecipe('customValidator');
+    if (!recipe.found) return;
+    const listed = /FieldContext\s*\(\{([^}]*)\}/.exec(recipe.description)?.[1] ?? '';
+    for (const name of listed.split(',').map((s) => s.trim().replace(/\.\.\./, ''))) {
+      if (name === '') continue;
+      expect(REAL, `FieldContext has no member "${name}"`).toContain(name);
+    }
   });
 });

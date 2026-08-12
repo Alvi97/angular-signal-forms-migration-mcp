@@ -31,9 +31,10 @@ const LEVELS = { Basic: 1, Medium: 2, Advanced: 3 };
 function readProperty(node, name) {
   for (const property of node.properties) {
     if (!ts.isPropertyAssignment(property)) continue;
-    const key = ts.isIdentifier(property.name) || ts.isStringLiteral(property.name)
-      ? property.name.text
-      : undefined;
+    const key =
+      ts.isIdentifier(property.name) || ts.isStringLiteral(property.name)
+        ? property.name.text
+        : undefined;
     if (key !== name) continue;
 
     const value = property.initializer;
@@ -121,5 +122,7 @@ writeFileSync(OUT, `${JSON.stringify(payload, null, 2)}\n`);
 
 const versions = [...new Set(steps.map((s) => s.necessaryAsOf))].sort((a, b) => a - b);
 console.log(`wrote ${String(steps.length)} steps to src/data/angular-update-steps.json`);
-console.log(`  commit ${payload.provenance.commit.slice(0, 10)} (${payload.provenance.committedISO})`);
+console.log(
+  `  commit ${payload.provenance.commit.slice(0, 10)} (${payload.provenance.committedISO})`,
+);
 console.log(`  covers v${String(versions[0] / 100)} .. v${String(versions.at(-1) / 100)}`);
