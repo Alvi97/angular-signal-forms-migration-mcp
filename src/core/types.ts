@@ -44,6 +44,7 @@ export const DETECTED_CONSTRUCTS = [
   'FormBuilder.control',
   'Validators.required',
   'Validators.requiredTrue',
+  'groupValidator',
   'Validators.email',
   'Validators.min',
   'Validators.max',

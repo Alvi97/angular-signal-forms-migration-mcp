@@ -684,6 +684,7 @@ function isInjectFormBuilder(node: ts.Node, aliases: ReadonlyMap<string, string>
 function collectFromNode(node: ts.Node, names: BoundNames, out: FindingDraft[]): void {
   if (ts.isNewExpression(node)) {
     collectFromNewExpression(node, names, out);
+    collectFromPositionalGroupValidator(node, names.aliases, out);
     return;
   }
   if (ts.isCallExpression(node)) {
@@ -695,6 +696,7 @@ function collectFromNode(node: ts.Node, names: BoundNames, out: FindingDraft[]):
   }
   if (ts.isPropertyAssignment(node)) {
     collectFromAsyncValidatorsOption(node, out);
+    collectFromGroupValidatorsOption(node, names.aliases, out);
     collectFromDeadValidatorOption(node, names.aliases, out);
     return;
   }
@@ -1045,6 +1047,80 @@ function isConstructorOptionsObject(
   if (parent === undefined) return false;
   if (!ts.isNewExpression(parent) || !ts.isIdentifier(parent.expression)) return false;
   return CONTROL_TYPES.has(canonical(parent.expression.text, aliases));
+}
+
+/** True when this object literal is the OPTIONS argument (index 1) of a group/array builder. */
+function isGroupOptionsObject(
+  node: ts.Node | undefined,
+  aliases: ReadonlyMap<string, string>,
+): boolean {
+  if (node === undefined || !ts.isObjectLiteralExpression(node)) return false;
+  const parent: ts.Node | undefined = node.parent;
+  if (parent === undefined) return false;
+
+  // A control-level `validators:` is not a cross-field rule — it is already covered by
+  // Validators.* / customValidator — so the container type and the argument slot both matter.
+  const isSecondArgument =
+    (ts.isNewExpression(parent) || ts.isCallExpression(parent)) && parent.arguments?.[1] === node;
+  if (!isSecondArgument) return false;
+
+  if (ts.isNewExpression(parent) && ts.isIdentifier(parent.expression)) {
+    const name = canonical(parent.expression.text, aliases);
+    return name === 'FormGroup' || name === 'FormArray' || name === 'FormRecord';
+  }
+  if (ts.isCallExpression(parent) && ts.isPropertyAccessExpression(parent.expression)) {
+    const method = declaredName(parent.expression.name);
+    return method === 'group' || method === 'array' || method === 'record';
+  }
+  return false;
+}
+
+const GROUP_VALIDATOR_REASON =
+  'A validator attached to the GROUP is a cross-field rule. In Signal Forms WHERE THE ERROR ' +
+  'LANDS is the migration decision, not a detail: `validate(path.confirm, ...)` puts it on ' +
+  'the field the user must fix, while `validate(path, ...)` at the group path leaves every ' +
+  'per-field error block silent even though the form is invalid. `validateTree` is the only ' +
+  'form that can target another field, and it must be bound at the lowest common ancestor of ' +
+  'every field it targets.';
+
+/** `{ validators: [...] }` on a group/array — the cross-field shape. */
+function collectFromGroupValidatorsOption(
+  node: ts.PropertyAssignment,
+  aliases: ReadonlyMap<string, string>,
+  out: FindingDraft[],
+): void {
+  if (declaredName(node.name) !== 'validators') return;
+  if (!isGroupOptionsObject(node.parent, aliases)) return;
+  out.push({
+    construct: 'groupValidator',
+    node,
+    classification: 'judgment',
+    reason: GROUP_VALIDATOR_REASON,
+  });
+}
+
+/** `new FormGroup({...}, passwordsMatch)` — the legacy positional validator. */
+function collectFromPositionalGroupValidator(
+  node: ts.NewExpression,
+  aliases: ReadonlyMap<string, string>,
+  out: FindingDraft[],
+): void {
+  if (!ts.isIdentifier(node.expression)) return;
+  const name = canonical(node.expression.text, aliases);
+  if (name !== 'FormGroup' && name !== 'FormArray' && name !== 'FormRecord') return;
+
+  const second = node.arguments?.[1];
+  if (second === undefined) return;
+  // An options object is handled by the property-assignment path above.
+  if (ts.isObjectLiteralExpression(second)) return;
+  if (!ts.isIdentifier(second) && !ts.isArrayLiteralExpression(second)) return;
+
+  out.push({
+    construct: 'groupValidator',
+    node: second,
+    classification: 'judgment',
+    reason: GROUP_VALIDATOR_REASON,
+  });
 }
 
 /** `new FormControl('', { asyncValidators: [...] })` and the fb.group equivalent. */

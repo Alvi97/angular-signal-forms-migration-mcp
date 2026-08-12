@@ -1155,6 +1155,99 @@ export class Registration {
     },
   ],
   [
+    'groupValidator',
+    {
+      construct: 'groupValidator',
+      description:
+        'A validator attached to the FormGroup is a cross-field rule. Signal Forms has two ' +
+        'placements and they differ in WHERE THE ERROR LANDS, which is the migration decision.',
+      before: `import { AbstractControl, FormBuilder, ValidationErrors } from '@angular/forms';
+
+export function passwordsMatch(group: AbstractControl): ValidationErrors | null {
+  return group.get('password')?.value === group.get('confirmPassword')?.value
+    ? null
+    : { passwordMismatch: true };
+}
+
+export class SignUp {
+  constructor(private fb: FormBuilder) {}
+  // The error lands on the GROUP: confirmPassword.errors stays null.
+  form = this.fb.group(
+    { password: [''], confirmPassword: [''] },
+    { validators: [passwordsMatch] },
+  );
+}`,
+      after: `import { signal } from '@angular/core';
+import { form, required, validate, validateTree } from '@angular/forms/signals';
+import type { SchemaPathTree } from '@angular/forms/signals';
+
+interface SignUpModel {
+  password: string;
+  confirmPassword: string;
+}
+
+export class SignUp {
+  readonly model = signal<SignUpModel>({ password: '', confirmPassword: '' });
+
+  // DEFAULT: put the error on the field the user must fix. \`validate\` cannot target any
+  // other field — FieldValidator returns ValidationError.WithoutFieldTree, whose fieldTree
+  // is declared \`never\`.
+  readonly f = form(this.model, (path) => {
+    required(path.password);
+    required(path.confirmPassword);
+
+    validate(path.confirmPassword, ({ value, valueOf }) =>
+      value() === valueOf(path.password)
+        ? null
+        : { kind: 'passwordMismatch', message: 'Passwords do not match' },
+    );
+  });
+}
+
+// ===========================================================================
+// MANY TARGETS: validateTree() is the only form that can attach an error to a
+// field other than the one it is bound to. Bind it at the LOWEST COMMON
+// ANCESTOR of every field it targets.
+// ===========================================================================
+interface Booking {
+  dateFrom: string;
+  dateTo: string;
+}
+
+export function dateRangeRule(path: SchemaPathTree<Booking>): void {
+  validateTree(path, ({ value, fieldTreeOf }) => {
+    const { dateFrom, dateTo } = value();
+    if (dateFrom <= dateTo) return null;
+    const message = 'From date must be on or before the to date';
+    return [
+      { kind: 'dateRange', message, fieldTree: fieldTreeOf(path.dateFrom) },
+      { kind: 'dateRange', message, fieldTree: fieldTreeOf(path.dateTo) },
+    ];
+  });
+}`,
+      caveats: [
+        STABILITY,
+        'WHERE THE ERROR LANDS IS THE MIGRATION. Reactive put the error on the group and ' +
+          'nowhere else, so the template read the group. Porting that faithfully — ' +
+          '`validate(path, ...)` at the group path — keeps `f().invalid()` working while ' +
+          'every per-field error block goes silent. Decide which field should show it.',
+        '`validate()` STRUCTURALLY CANNOT target another field: its return type is ' +
+          '`ValidationError.WithoutFieldTree`, which declares `fieldTree?: never`. Setting it ' +
+          'is a type error, not a runtime surprise. Use validateTree() when you need to.',
+        'A reusable cross-field rule takes `SchemaPathTree<T>`, NOT `SchemaPath<T>` — the ' +
+          'latter has no subfield properties, so `path.dateFrom` does not compile.',
+        'UNVERIFIED at runtime, INFERRED from the shipped tree-error propagation: a ' +
+          'validateTree error whose fieldTree is NOT a descendant of the bound path matches ' +
+          'nowhere and is silently discarded, leaving the form reporting valid. `fieldTree` is ' +
+          'typed `ReadonlyFieldTree<unknown>`, so the compiler accepts any field and will not ' +
+          'catch this. Bind at the lowest common ancestor.',
+        '`errors()` is own-errors only; `errorSummary()` includes descendants. A group-level ' +
+          'error therefore does NOT appear in a child field\u2019s `errors()`.',
+      ],
+      sources: [DOCS.crossField, DOCS.validation],
+    },
+  ],
+  [
     'formStateRead',
     {
       construct: 'formStateRead',
@@ -2127,8 +2220,8 @@ readonly f = form(this.model);
       construct: 'customValidator',
       description:
         'A custom ValidatorFn is rewritten with validate(). The callback receives a FieldContext ' +
-        '({ value, valueOf, state, field, ... }) rather than an AbstractControl, and returns an ' +
-        'error object or null.',
+        '({ value, state, fieldTree, valueOf, stateOf, fieldTreeOf, pathKeys }) rather than an ' +
+        'AbstractControl, and returns an error object or null.',
       before: `import { AbstractControl, ValidationErrors, ValidatorFn } from '@angular/forms';
 
 export function httpsUrl(): ValidatorFn {
@@ -2242,6 +2335,9 @@ const ALIASES: ReadonlyMap<string, string> = new Map([
   ['abstractcontrol.controls', 'formStateRead'],
   ['abstractcontrol.status', 'formStateRead'],
   ['formstateread', 'formStateRead'],
+  ['groupvalidator', 'groupValidator'],
+  ['crossfieldvalidator', 'groupValidator'],
+  ['cross-field validator', 'groupValidator'],
   // Writing to a form -> the model signal, or a schema rule.
   ['abstractcontrol.setvalue', 'formStateWrite'],
   ['abstractcontrol.patchvalue', 'formStateWrite'],
