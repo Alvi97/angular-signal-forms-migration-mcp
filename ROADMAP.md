@@ -136,6 +136,32 @@ customValidator recipe named a `field` member on `FieldContext` that does not ex
 from the v22 guide's own table, which is CLAUDE.md rule 2 arriving through prose instead of a
 version diff.
 
+**M16 — what a real migration found.** Everything above was measured against fixtures. This
+milestone is what changed after migrating a component in a real repo, end to end, with the
+AOT build as the judge.
+
+| Found                                             | Was                                                                                 | Now                                                                       |
+| ------------------------------------------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `moduleResolution: "node"` blocks the entry point | report said "Signal Forms is available" on version alone                            | a second BLOCKING PREREQUISITE naming the tsconfig, the value and the fix |
+| template state reads                              | forgot-password.component.html: **2 findings**, report "all mechanical, 0 judgment" | **12 findings**; every line that actually needed editing                  |
+| `FormsModule`                                     | reported as `leftoverReactiveForms`                                                 | its own check — it is template-driven, not Reactive                       |
+| dual-mode validators file                         | `error`                                                                             | `info`; a shared primitive mid-migration is the correct state             |
+
+The module-resolution gate is the harder one **because the version looks fine**.
+`@angular/forms/signals` is a package-exports subpath that legacy `node` resolution cannot
+read, so every import fails TS2307 with the version gate fully satisfied. Two independent
+migrations of that repo hit the identical wall while the tool said "available".
+
+The template gap is **the M5 defect one layer up**: M5 records finding exactly this in
+`forgot-password.component.ts`; migrating the same file found it again in its `.html`. State
+reads were added for `.ts` and never for templates. `errors?.['key']` is graded judgment
+rather than mechanical, because Signal Forms errors are an array of `{ kind, message }` — a
+transliterated bracket access compiles and silently never matches.
+
+The lesson worth keeping: every fixture in this repo was either fully migrated or not
+migrated at all. A real migration spends its entire life in between, and that is where four
+defects were hiding.
+
 ### Still deferred
 
 | Item                                            | Target  | Note                                                                                                                                                                                              |
