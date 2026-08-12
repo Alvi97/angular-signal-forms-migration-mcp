@@ -65,6 +65,14 @@ const COMPAT_ENTRY = '@angular/forms/signals/compat';
 interface FileContext {
   readonly importsSignals: boolean;
   readonly importsCompat: boolean;
+  /**
+   * True when the file EXPORTS something typed with the Reactive API while also using Signal
+   * Forms — a shared primitive serving both sides of a phased migration. Found on a real
+   * in-flight migration: a validators module exporting both a ValidatorFn and a rule, with two
+   * unmigrated components still consuming the old export. That is the correct intermediate
+   * state, not a defect.
+   */
+  readonly dualModeExport: boolean;
   /** Names bound to a `form(...)` / `compatForm(...)` result. */
   readonly formNames: ReadonlySet<string>;
   readonly reactiveImports: ts.ImportDeclaration[];
@@ -107,7 +115,40 @@ function readContext(sourceFile: ts.SourceFile): FileContext {
   };
   ts.forEachChild(sourceFile, visit);
 
-  return { importsSignals, importsCompat, formNames, reactiveImports };
+  // Does anything EXPORTED here still speak the Reactive API? Then unmigrated consumers
+  // depend on it, and removing the import would break them.
+  const reactiveNames = new Set<string>();
+  for (const declaration of reactiveImports) {
+    const bindings = declaration.importClause?.namedBindings;
+    if (bindings !== undefined && ts.isNamedImports(bindings)) {
+      for (const element of bindings.elements) reactiveNames.add(element.name.text);
+    }
+  }
+
+  let dualModeExport = false;
+  const seekExportedReactiveType = (node: ts.Node): void => {
+    if (dualModeExport) return;
+    const isExported =
+      (ts.isFunctionDeclaration(node) ||
+        ts.isVariableStatement(node) ||
+        ts.isClassDeclaration(node) ||
+        ts.isTypeAliasDeclaration(node)) &&
+      (ts.getCombinedModifierFlags(node as ts.Declaration) & ts.ModifierFlags.Export) !== 0;
+    if (isExported) {
+      const mentionsReactiveType = (child: ts.Node): void => {
+        if (dualModeExport) return;
+        if (ts.isTypeReferenceNode(child) && ts.isIdentifier(child.typeName)) {
+          if (reactiveNames.has(child.typeName.text)) dualModeExport = true;
+        }
+        ts.forEachChild(child, mentionsReactiveType);
+      };
+      ts.forEachChild(node, mentionsReactiveType);
+    }
+    ts.forEachChild(node, seekExportedReactiveType);
+  };
+  ts.forEachChild(sourceFile, seekExportedReactiveType);
+
+  return { importsSignals, importsCompat, formNames, reactiveImports, dualModeExport };
 }
 
 /**
@@ -442,6 +483,26 @@ function checkLeftovers(
         ? clause.elements.map((element) => element.name.text)
         : [];
 
+    // FormsModule is TEMPLATE-DRIVEN forms, not Reactive. Reporting it as a Reactive leftover
+    // names the wrong family and sends the reader looking for a FormGroup. Found on a real
+    // migration where the component had migrated to [formField] and left FormsModule in
+    // `imports` with no ngModel anywhere.
+    if (names.includes('FormsModule')) {
+      out.push(
+        makeFinding(
+          'templateDrivenModuleImport',
+          'warning',
+          declaration,
+          sourceFile,
+          'FormsModule is the TEMPLATE-DRIVEN forms module (ngModel), not Reactive Forms. A ' +
+            'component bound with [formField] does not need it. If no ngModel remains in this ' +
+            "component's template, drop it from `imports` — while it is there the " +
+            'template-driven directives stay live and can mask a binding mistake.',
+          "verify/node_modules/@angular/forms/package.json (exports '.', './signals')",
+        ),
+      );
+    }
+
     const moduleImport = names.find((name) => name === 'ReactiveFormsModule');
     if (moduleImport !== undefined) {
       out.push(
@@ -458,21 +519,44 @@ function checkLeftovers(
       );
     }
 
-    const others = names.filter((name) => name !== 'ReactiveFormsModule');
-    if (others.length > 0) {
+    const others = names.filter((name) => name !== 'ReactiveFormsModule' && name !== 'FormsModule');
+    if (others.length === 0) continue;
+
+    const named = others.map((n) => `\`${n}\``).join(', ');
+    if (context.dualModeExport) {
+      // A shared primitive mid-migration: something exported here is still typed with the
+      // Reactive API, so unmigrated consumers depend on it and removing the import would
+      // break them. The compat-entry-point downgrade was too narrow — it recognised only the
+      // documented interop path, not the commoner one a phased migration actually takes.
       out.push(
         makeFinding(
           'leftoverReactiveForms',
-          'error',
+          'info',
           declaration,
           sourceFile,
-          `Still importing ${others.map((n) => `\`${n}\``).join(', ')} from '@angular/forms' in ` +
-            'a file that uses Signal Forms. Either finish the conversion, or move to ' +
-            "'@angular/forms/signals/compat' so the interop is explicit.",
-          "verify/node_modules/@angular/forms/package.json (exports '.', './signals', './signals/compat')",
+          `This file imports ${named} from '@angular/forms' AND exports something typed with ` +
+            'them, alongside Signal Forms — a shared primitive serving both sides of a phased ' +
+            'migration. That is the correct intermediate state, not a defect: unmigrated ' +
+            'consumers still need the old export. Remove it once nothing consumes it, and ' +
+            'settle the error shape early since it gates every consumer.',
+          "verify/node_modules/@angular/forms/package.json (exports '.', './signals')",
         ),
       );
+      continue;
     }
+
+    out.push(
+      makeFinding(
+        'leftoverReactiveForms',
+        'error',
+        declaration,
+        sourceFile,
+        `Still importing ${named} from '@angular/forms' in a file that uses Signal Forms. ` +
+          "Either finish the conversion, or move to '@angular/forms/signals/compat' so the " +
+          'interop is explicit.',
+        "verify/node_modules/@angular/forms/package.json (exports '.', './signals', './signals/compat')",
+      ),
+    );
   }
 }
 

@@ -314,6 +314,7 @@ export type GetSignalFormsRecipeInput = z.infer<typeof getSignalFormsRecipeInput
 export const VERIFY_CHECKS = [
   'leftoverReactiveForms',
   'reactiveFormsModuleImport',
+  'templateDrivenModuleImport',
   'signalNotCalled',
   'deprecatedLogicShape',
   'preReleaseApiName',
