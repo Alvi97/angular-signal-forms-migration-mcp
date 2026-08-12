@@ -19,12 +19,14 @@ describe('getSignalFormsRecipe', () => {
   });
 
   it('returns a structured miss — never throws — for an unknown construct', () => {
-    const result = getSignalFormsRecipe('FormRecord');
+    // Was `FormRecord` until M15 gave it a recipe. `NgForm` is template-driven, which the
+    // project refuses to invent a path for, so it is a stable example of a real miss.
+    const result = getSignalFormsRecipe('NgForm');
 
     expect(result.found).toBe(false);
     if (result.found) return;
 
-    expect(result.construct).toBe('FormRecord');
+    expect(result.construct).toBe('NgForm');
     // The miss is self-healing: the agent gets the valid keys back and can retry.
     expect(result.availableConstructs).toContain('FormGroup');
     expect(result.availableConstructs.length).toBeGreaterThan(0);

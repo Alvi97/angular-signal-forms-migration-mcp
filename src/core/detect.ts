@@ -91,6 +91,11 @@ const CONTROL_TYPES: ReadonlySet<string> = new Set([
   'FormGroup',
   'FormControl',
   'FormArray',
+  // `class FormRecord extends FormGroup {}` — an empty body. The difference is entirely
+  // type-level (homogeneous control type, OPEN key set), but omitting it here bound no name,
+  // so every downstream usage was invisible: measured 3 findings and 0 judgment on a record
+  // form that used addControl, .get(key), Object.keys(.controls) and getRawValue().
+  'FormRecord',
   'AbstractControl',
 ]);
 
@@ -99,6 +104,7 @@ const REPORTED_CONTROL_TYPES: ReadonlySet<string> = new Set([
   'FormGroup',
   'FormControl',
   'FormArray',
+  'FormRecord',
 ]);
 
 /** Methods that mutate a form's shape at runtime. No Signal Forms equivalent, so judgment. */
@@ -529,7 +535,8 @@ function isFormConstruction(
   }
   if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
     const method = declaredName(node.expression.name);
-    if (method === 'group' || method === 'array' || method === 'control') return true;
+    if (method === 'group' || method === 'array' || method === 'control' || method === 'record')
+      return true;
     // A factory delegating to another factory: `return this.buildBase();`
     if (
       method !== undefined &&
@@ -616,7 +623,7 @@ function holdsFormInitializer(node: ts.Node, aliases: ReadonlyMap<string, string
   }
   if (ts.isCallExpression(initializer) && ts.isPropertyAccessExpression(initializer.expression)) {
     const method = declaredName(initializer.expression.name);
-    return method === 'group' || method === 'array' || method === 'control';
+    return method === 'group' || method === 'array' || method === 'control' || method === 'record';
   }
   return false;
 }
@@ -1075,6 +1082,16 @@ function isGroupOptionsObject(
   return false;
 }
 
+/**
+ * A FormRecord's key set is OPEN. A Signal Forms model is a typed object, so the counterpart
+ * is `Record<string, T>` with applyEach() over its values — which means deciding how keys are
+ * added and removed, not renaming a constructor.
+ */
+const FORM_RECORD_REASON =
+  'A FormRecord has an OPEN key set, so it cannot become a fixed model shape. The counterpart ' +
+  'is a `Record<string, T>` model with applyEach() applying one schema to every value, and ' +
+  'keys added or removed by updating the model signal. Decide how keys are managed first.';
+
 const GROUP_VALIDATOR_REASON =
   'A validator attached to the GROUP is a cross-field rule. In Signal Forms WHERE THE ERROR ' +
   'LANDS is the migration decision, not a detail: `validate(path.confirm, ...)` puts it on ' +
@@ -1211,6 +1228,17 @@ function collectFromNewExpression(
   // Canonical, so `new FG(...)` takes the FormGroup branch and is REPORTED as FormGroup.
   const constructName = canonical(node.expression.text, names.aliases);
 
+  if (constructName === 'FormRecord') {
+    out.push({
+      construct: 'FormRecord',
+      node,
+      definesForm: true,
+      classification: 'judgment',
+      reason: FORM_RECORD_REASON,
+    });
+    return;
+  }
+
   if (constructName === 'FormArray') {
     const owner = assignedName(node);
     const mutated = owner !== undefined && names.mutated.has(owner);
@@ -1293,8 +1321,21 @@ function collectFromFormBuilderCall(
   if (!ts.isPropertyAccessExpression(callee)) return;
 
   const method = declaredName(callee.name);
-  if (method !== 'group' && method !== 'control' && method !== 'array') return;
+  if (method !== 'group' && method !== 'control' && method !== 'array' && method !== 'record') {
+    return;
+  }
   if (!isKnownReceiver(callee.expression, formBuilderNames)) return;
+
+  if (method === 'record') {
+    out.push({
+      construct: 'FormBuilder.record',
+      node,
+      definesForm: true,
+      classification: 'judgment',
+      reason: FORM_RECORD_REASON,
+    });
+    return;
+  }
 
   if (method === 'array') {
     out.push({

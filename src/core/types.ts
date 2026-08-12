@@ -61,6 +61,8 @@ export const DETECTED_CONSTRUCTS = [
   // M2: dynamic and async
   'FormArray',
   'FormBuilder.array',
+  'FormRecord',
+  'FormBuilder.record',
   'FormGroup.addControl',
   'FormGroup.removeControl',
   'FormGroup.setControl',
