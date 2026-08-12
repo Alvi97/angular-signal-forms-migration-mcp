@@ -1334,6 +1334,90 @@ export class Preferences {
     },
   ],
   [
+    'controlSubclass',
+    {
+      construct: 'controlSubclass',
+      description:
+        'A class extending FormGroup / FormControl / FormArray has no counterpart: a Signal ' +
+        'Forms field tree is a mapped TYPE, not a class. The subclass splits into four ' +
+        'destinations — an interface, a schema, plain functions, and computed signals.',
+      before: `import { FormGroup, FormControl, Validators } from '@angular/forms';
+
+export class AddressForm extends FormGroup {
+  constructor() {
+    super({
+      street: new FormControl('', Validators.required),
+      city: new FormControl('', Validators.required),
+    });
+  }
+
+  get oneLine(): string {
+    return \`\${this.get('street')?.value}, \${this.get('city')?.value}\`;
+  }
+
+  clearCity(): void {
+    this.get('city')?.setValue('');
+  }
+}`,
+      after: `import { computed, signal } from '@angular/core';
+import { form, required, schema } from '@angular/forms/signals';
+
+// 1. STRUCTURE becomes an interface plus an empty value.
+export interface Address {
+  street: string;
+  city: string;
+}
+
+export const EMPTY_ADDRESS: Address = { street: '', city: '' };
+
+// 2. CONSTRUCTOR VALIDATOR WIRING becomes a reusable schema.
+export const addressSchema = schema<Address>((path) => {
+  required(path.street);
+  required(path.city);
+});
+
+// 3. DOMAIN METHODS become plain functions over the model type — they no longer live on the
+//    form, because methods are mapped OUT of the field tree.
+export function oneLine(address: Address): string {
+  return \`\${address.street}, \${address.city}\`;
+}
+
+// 4. DERIVED GETTERS become computed() on the component that owns the model.
+export class AddressComponent {
+  readonly model = signal(EMPTY_ADDRESS);
+  readonly f = form(this.model, addressSchema);
+
+  readonly oneLine = computed(() => oneLine(this.model()));
+
+  clearCity(): void {
+    this.f.city().value.set('');
+  }
+}`,
+      caveats: [
+        STABILITY,
+        'NOT DOCUMENTED. angular.dev says nothing about migrating a control subclass in either ' +
+          'direction — a version-pinned docs search returns no results. Each DESTINATION is ' +
+          'documented on its own (model design, schemas, custom controls); the mapping from ' +
+          'subclass member to destination is INFERRED by this tool. Treat it as a starting ' +
+          'shape, not an authority.',
+        'There is nothing to extend. `FieldTree` is a mapped/conditional TYPE ALIAS with no ' +
+          'constructor, and `Schema` is a branded object — `class X extends FieldTree` is not ' +
+          'a thing you can write.',
+        'KEEPING THE CLASS AS THE MODEL DOES NOT WORK, for two independent reasons. Methods ' +
+          'are mapped OUT of the field tree (Subfields excludes function-typed keys), and the ' +
+          'first child write spreads the object into a plain literal, so the prototype — and ' +
+          'every method with it — is gone after one edit.',
+        'STAGING STEP, NOT THE DESTINATION: `compatForm()` accepts a model whose properties ' +
+          'are AbstractControl instances and preserves the declared type, so an existing ' +
+          'subclass keeps working while you convert its consumers. It defers the redesign ' +
+          'rather than performing it — do not stop there.',
+        'The instantiation sites are in OTHER files, so this finding cannot be resolved from ' +
+          'the file that declares the class. Decide the split first, then migrate consumers.',
+      ],
+      sources: [DOCS.models, DOCS.schemas, DOCS.customControls, DOCS.migration],
+    },
+  ],
+  [
     'formStateRead',
     {
       construct: 'formStateRead',
@@ -2423,6 +2507,8 @@ const ALIASES: ReadonlyMap<string, string> = new Map([
   ['formstateread', 'formStateRead'],
   ['groupvalidator', 'groupValidator'],
   ['formrecord', 'FormRecord'],
+  ['controlsubclass', 'controlSubclass'],
+  ['subclass', 'controlSubclass'],
   ['formbuilder.record', 'FormRecord'],
   ['fb.record', 'FormRecord'],
   ['crossfieldvalidator', 'groupValidator'],

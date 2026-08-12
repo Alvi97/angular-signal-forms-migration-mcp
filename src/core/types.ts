@@ -111,6 +111,7 @@ export const DETECTED_CONSTRUCTS = [
 
   // M3: deep judgment
   'ControlValueAccessor',
+  'controlSubclass',
   'valueChanges',
   'statusChanges',
   'valueChangesPipeline',
@@ -144,7 +145,12 @@ export type Classification = z.infer<typeof classificationSchema>;
  * Every symbol in the old advice was correct and the compile harness was green, which is
  * exactly the failure a compile harness cannot see.
  */
-export const CROSS_FILE_CONSTRUCTS: ReadonlySet<string> = new Set(['Template.nativeAttribute']);
+export const CROSS_FILE_CONSTRUCTS: ReadonlySet<string> = new Set([
+  'Template.nativeAttribute',
+  // A control subclass is instantiated in OTHER files. Whether a given site is safe to change
+  // cannot be decided from the file that declares the class.
+  'controlSubclass',
+]);
 
 export const findingSchema = z.object({
   /** The Reactive Forms construct found, e.g. `Validators.required`. */

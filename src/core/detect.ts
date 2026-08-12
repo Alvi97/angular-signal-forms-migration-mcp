@@ -718,6 +718,7 @@ function collectFromNode(node: ts.Node, names: BoundNames, out: FindingDraft[]):
   }
   if (ts.isClassDeclaration(node)) {
     collectControlValueAccessor(node, names.aliases, out);
+    collectControlSubclass(node, names.aliases, out);
     return;
   }
   if (ts.isFunctionLike(node)) {
@@ -1087,6 +1088,60 @@ function isGroupOptionsObject(
  * is `Record<string, T>` with applyEach() over its values — which means deciding how keys are
  * added and removed, not renaming a constructor.
  */
+
+/**
+ * Reactive Forms base classes that real codebases extend. A superset of CONTROL_TYPES: the
+ * Untyped* aliases are subclassed in older code and are otherwise unknown to this detector.
+ */
+const SUBCLASSABLE_CONTROL_TYPES: ReadonlySet<string> = new Set([
+  ...CONTROL_TYPES,
+  'UntypedFormControl',
+  'UntypedFormGroup',
+  'UntypedFormArray',
+]);
+
+/**
+ * `class AddressForm extends FormGroup` — a redesign, not a rename.
+ *
+ * There is nothing to extend on the other side: `FieldTree` is a mapped/conditional TYPE
+ * ALIAS, not a class, so the subclass splits into a model interface, a schema, plain
+ * functions and computed signals. Reported once per class, mirroring the CVA handler.
+ */
+function collectControlSubclass(
+  node: ts.ClassDeclaration,
+  aliases: ReadonlyMap<string, string>,
+  out: FindingDraft[],
+): void {
+  const extended = (node.heritageClauses ?? []).find(
+    (clause) => clause.token === ts.SyntaxKind.ExtendsKeyword,
+  );
+  if (extended === undefined) return;
+
+  const base = extended.types.find(
+    (type) =>
+      ts.isIdentifier(type.expression) &&
+      SUBCLASSABLE_CONTROL_TYPES.has(canonical(type.expression.text, aliases)),
+  );
+  if (base === undefined || !ts.isIdentifier(base.expression)) return;
+  const baseName = canonical(base.expression.text, aliases);
+
+  out.push({
+    construct: 'controlSubclass',
+    node,
+    // The subclass does not itself define a migratable form: the controls inside super() are
+    // reported separately, and the instantiation sites live in other files.
+    definesForm: false,
+    classification: 'judgment',
+    reason:
+      `This class extends ${baseName}. Signal Forms has no class to extend — a field tree is ` +
+      'a mapped TYPE ALIAS generated from the model, and methods on the model are mapped OUT ' +
+      'of it. The subclass therefore splits: structure becomes an interface, constructor ' +
+      'validator wiring becomes a schema(), domain methods become plain functions over the ' +
+      'model type, and derived getters become computed(). Decide that split before migrating ' +
+      'any file that instantiates it.',
+  });
+}
+
 const FORM_RECORD_REASON =
   'A FormRecord has an OPEN key set, so it cannot become a fixed model shape. The counterpart ' +
   'is a `Record<string, T>` model with applyEach() applying one schema to every value, and ' +
