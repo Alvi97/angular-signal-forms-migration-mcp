@@ -19,6 +19,7 @@ import {
 } from './core/angular-version.js';
 import { analyzeMigrationComplexity } from './core/complexity.js';
 import { pageFindings } from './core/paginate.js';
+import { detectModuleResolution } from './core/module-resolution.js';
 import { ALWAYS_SKIPPED, VERIFY_DISCLAIMER, verifyMigration } from './core/verify.js';
 import { findFormCandidates } from './core/detect.js';
 import { getSignalFormsRecipe } from './core/recipes.js';
@@ -335,6 +336,9 @@ export function createServer(): McpServer {
           withFindings.map((entry) => entry.file),
           nodeFileSystem,
         ),
+        // The second gate. A correct Angular version is not sufficient: legacy `node` module
+        // resolution cannot import @angular/forms/signals at all.
+        detectModuleResolution(absolute, nodeFileSystem),
       );
       return {
         // The markdown is the payload, so it goes in content as-is rather than JSON-encoded.
