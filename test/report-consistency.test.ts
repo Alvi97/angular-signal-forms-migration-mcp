@@ -51,6 +51,7 @@ const V22: AngularVersion = {
   major: 22,
   source: 'node_modules',
   from: '/repo/node_modules/@angular/core/package.json',
+  straddlesGate: false,
 };
 const V19: AngularVersion = { ...V22, raw: '19.2.6', major: 19 };
 

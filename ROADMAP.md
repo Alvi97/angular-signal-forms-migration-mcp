@@ -158,6 +158,14 @@ reads were added for `.ts` and never for templates. `errors?.['key']` is graded 
 rather than mechanical, because Signal Forms errors are an array of `{ kind, message }` — a
 transliterated bracket access compiles and silently never matches.
 
+A third gate came from checking out an OLD branch over a newer `node_modules` — the ordinary
+result of `git checkout` without `npm install`. `package.json` declared 19.2.6, the install
+held 22.0.7, and the report said "Target Angular version: 22.0.7 — Signal Forms is available"
+without mentioning the contradiction. The two straddle the v21 line, which is the one case
+where silently preferring either is wrong: migrate on the install and the next `npm ci`
+reverts to a version where `@angular/forms/signals` does not exist. It is now a blocking
+prerequisite that refuses to choose.
+
 The lesson worth keeping: every fixture in this repo was either fully migrated or not
 migrated at all. A real migration spends its entire life in between, and that is where four
 defects were hiding.
