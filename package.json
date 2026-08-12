@@ -1,6 +1,6 @@
 {
   "name": "angular-signal-forms-migration-mcp",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "mcpName": "io.github.Alvi97/angular-signal-forms-migration-mcp",
   "description": "MCP server that detects Angular Reactive Forms constructs and advises on migrating them to Angular Signal Forms (recipes verified against v22). Detect-and-advise only — never edits your code.",
   "author": "Alvi97 (https://github.com/Alvi97)",
